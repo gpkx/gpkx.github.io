@@ -357,9 +357,7 @@
                 const fetchData = async () => {
                     try {
                         loading.value = true;
-                        // 🌟 调整：使用 Base64 混淆技术，防止别人看源代码直接搜到网址
-                        // atob 解码后对应的依然是您的真实地址：https://etf.hahagw.eu.org/
-                        const sourceCode = 'YUhSMGNITTZMeTlsZEdZdWFHRm9ZV2QzTG1WMUxtOXlaeTgv';
+                        const sourceCode = 'aHR0cHM6Ly9ldGYuaGFoYWd3LmV1Lm9yZy8=';
                         const response = await fetch(atob(sourceCode));
                         
                         if (response.ok) {
