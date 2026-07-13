@@ -31,7 +31,7 @@
             background-repeat: repeat;
         }
         
-        /* 优化滚动条样式 (避免PC端太突兀) */
+        /* 优化滚动条样式 */
         .custom-scrollbar::-webkit-scrollbar {
             width: 6px;
             height: 6px;
@@ -55,8 +55,9 @@
     <div class="watermark-overlay"></div>
 
     <div id="app" v-cloak>
-        <header class="bg-slate-800 text-white shadow-md sticky top-0 z-50">
-            <div class="container mx-auto px-4 py-3 flex justify-between items-center">
+        <!-- 调整：固定导航栏高度为 56px，为下方表头吸附留出空间 -->
+        <header class="bg-slate-800 text-white shadow-md sticky top-0 z-50 h-[56px]">
+            <div class="container mx-auto px-4 h-full flex justify-between items-center">
                 <h1 class="text-lg font-bold flex items-center gap-2">
                     <i class="fa-solid fa-chart-line text-emerald-400"></i> ETF涨跌幅实时监控
                 </h1>
@@ -140,14 +141,25 @@
                 </div>
 
                 <!-- 监控看板表格区 -->
-                <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden relative">
-                    <div class="overflow-auto max-h-[75vh] w-full custom-scrollbar">
+                <!-- 调整：去掉 overflow-hidden 允许桌面端滚动条外透到窗口 -->
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 relative">
+                    <!-- 调整：移除 max-h-[75vh]，PC 端取消强制区域滚动 (md:overflow-visible)，全局滚动更流畅 -->
+                    <div class="w-full custom-scrollbar overflow-x-auto md:overflow-visible">
                         <table class="w-full text-center border-collapse whitespace-nowrap min-w-max">
-                            <thead class="sticky top-0 bg-slate-100 shadow-sm z-20">
+                            <!-- 调整：top-[56px] 完美衔接顶部黑条 -->
+                            <thead class="sticky top-[56px] bg-slate-100 shadow-sm z-30">
                                 <tr class="text-sm font-bold text-slate-700 select-none">
-                                    <th class="p-2 md:p-3 text-center sticky left-0 bg-slate-100 z-30 shadow-[1px_0_0_0_#e2e8f0] etf-name-column">ETF名称</th>
+                                    <!-- 调整：给ETF名称添加了点击排序 -->
+                                    <th class="p-2 md:p-3 text-center sticky left-0 bg-slate-100 z-40 shadow-[1px_0_0_0_#e2e8f0] etf-name-column cursor-pointer hover:bg-slate-200 transition-colors" @click="handleSort('etf_name')">
+                                        <div class="flex items-center justify-center gap-1">
+                                            ETF名称
+                                            <div class="flex flex-col text-[9px] leading-[8px] text-gray-300">
+                                                <i class="fa-solid fa-caret-up" :class="{'text-blue-600': sortColumn === 'etf_name' && sortOrder === 'asc'}"></i>
+                                                <i class="fa-solid fa-caret-down" :class="{'text-blue-600': sortColumn === 'etf_name' && sortOrder === 'desc'}"></i>
+                                            </div>
+                                        </div>
+                                    </th>
                                     
-                                    <!-- 交互式表头：添加了点击排序功能和上下箭头指示器 -->
                                     <th class="p-2 md:p-3 cursor-pointer hover:bg-slate-200 transition-colors" @click="handleSort('am_status')">
                                         <div class="flex items-center justify-center gap-1">
                                             上午
@@ -282,7 +294,7 @@
                 const currentMonth = ref(new Date().getMonth()); 
 
                 // 排序相关状态
-                const sortColumn = ref(null); // 可以是 'am_status', 'pm_status', 'day_status', 'week_status' 或 null
+                const sortColumn = ref(null); // 可以是 'etf_name', 'am_status', 'pm_status', 'day_status', 'week_status' 或 null
                 const sortOrder = ref('desc'); // 'desc' 或 'asc'
 
                 const uniqueDatesSet = computed(() => {
@@ -470,14 +482,21 @@
                         
                         // 2. 如果开启了【点击表头单独排序】
                         if (sortColumn.value) {
-                            const valA = getStatusVal(a[sortColumn.value]);
-                            const valB = getStatusVal(b[sortColumn.value]);
-                            
-                            // 处理空数据(-9999)始终垫底
-                            if (valA === -9999 && valB !== -9999) return 1;
-                            if (valB === -9999 && valA !== -9999) return -1;
-                            
-                            return sortOrder.value === 'desc' ? valB - valA : valA - valB;
+                            // 调整：文字类型对比使用 localeCompare 处理拼音字母
+                            if (sortColumn.value === 'etf_name') {
+                                const cmp = a.etf_name.localeCompare(b.etf_name, 'zh-CN');
+                                return sortOrder.value === 'asc' ? cmp : -cmp;
+                            } else {
+                                // 数值类型排序
+                                const valA = getStatusVal(a[sortColumn.value]);
+                                const valB = getStatusVal(b[sortColumn.value]);
+                                
+                                // 处理空数据(-9999)始终垫底
+                                if (valA === -9999 && valB !== -9999) return 1;
+                                if (valB === -9999 && valA !== -9999) return -1;
+                                
+                                return sortOrder.value === 'desc' ? valB - valA : valA - valB;
+                            }
                         } 
                         // 3. 【默认排序规则】
                         else {
