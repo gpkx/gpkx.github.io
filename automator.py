@@ -22,15 +22,6 @@ FILE_SUFFIX = NOW.strftime("%Y%m%d_%H%M")
 INTRO_TEXT = f"各位观众朋友大家好，欢迎关注最新的行业ETF客观数据跟踪。截至{TIME_LABEL}，我们来梳理一下市场核心板块的最新动态。"
 OUTRO_TEXT = "以上数据均源自公开市场客观统计，仅供全景量化复盘参考，不构成任何投资建议或操作引导。理财有风险，入市需谨慎。"
 
-# 生成吸引眼球的标题（供封面和 Telegram 发送使用）
-HOOK_TITLES = [
-    f"🚨 {TIME_LABEL}异动追踪！四大核心ETF关键信号出现？",
-    f"🔥 拒绝马后炮！{TIME_LABEL}真实数据复盘，主力意图显现？",
-    f"⚡ 支撑还是突破？{TIME_LABEL}核心板块量化客观全景推演",
-    f"📊 {TIME_LABEL}数据速递：抛开情绪，这四大板块客观走势如何？"
-]
-SELECTED_HOOK = random.choice(HOOK_TITLES)
-
 def get_tv_symbol(code):
     if code.startswith(('5', '6')): return f"SSE:{code}"
     return f"SZSE:{code}"
@@ -67,8 +58,64 @@ async def main():
             
         page = await context.new_page()
 
-        # --- 新增：使用 HTML 动态渲染高转化率封面 ---
-        print("🎨 正在生成爆款封面图...")
+        # 1. 抓取总览图与真实数据
+        print("🔍 正在实时抓取今日行情数据...")
+        await page.goto(TARGET_URL, wait_until="networkidle")
+        await page.wait_for_timeout(3000) 
+        await page.screenshot(path="ss_main.png")
+        
+        etf_list = []
+        try:
+            row_locators = page.locator("tr, .el-table__row, .row, li")
+            count = await row_locators.count()
+            
+            for i in range(count):
+                if len(etf_list) >= 4: break
+                text = await row_locators.nth(i).inner_text()
+                lines = [line.strip() for line in text.split('\n') if line.strip()]
+                
+                if len(lines) >= 3 and any(c.isdigit() for c in lines[1]):
+                    name = lines[0].split('(')[0].replace('>', '').strip()
+                    code = ''.join(filter(str.isdigit, lines[1]))[:6]
+                    try:
+                        change = lines[4] if not IS_MIDDAY and len(lines) > 4 else lines[2]
+                    except:
+                        change = [L for L in lines if '%' in L][-1]
+                    
+                    if len(code) == 6:
+                        etf_list.append({"name": name, "code": code, "change": change})
+            if not etf_list: raise Exception("未匹配到数据")
+        except Exception as e:
+            print(f"⚠️ 解析异常 ({e})，启用兜底...")
+            etf_list = [{"name": "核心ETF", "code": "510050", "change": "+0.0%"}] * 4
+
+        # --- 👇 新增：数据驱动的动态钩子引擎 👇 ---
+        global SELECTED_HOOK # 声明全局变量，供最后发送 Telegram 时使用
+        print("🧠 正在根据今日数据生成爆款标题...")
+        
+        # 找出今天波动最大（最吸睛）的一只 ETF
+        top_etf = etf_list[0]
+        max_abs_val = -1
+        for e in etf_list:
+            try:
+                val = abs(float(e['change'].replace('%', '').replace('+', '')))
+                if val > max_abs_val:
+                    max_abs_val = val
+                    top_etf = e
+            except:
+                pass
+        
+        # 根据涨跌情况，智能匹配合规的话术词汇
+        is_up = '+' in top_etf['change']
+        action_word = "强势领跑" if is_up else "承压回调"
+        emoji = "🚀" if is_up else "⚠️"
+        
+        # 动态拼接最终标题
+        SELECTED_HOOK = f"{emoji} {TIME_LABEL}异动！{top_etf['name']}{action_word}{top_etf['change']}，核心板块全景推演！"
+        print(f"🎯 最终生成钩子标题: {SELECTED_HOOK}")
+
+        # --- 🎨 使用动态生成的标题渲染高转化率封面 ---
+        print("🎨 正在渲染包含真实数据的封面图...")
         cover_html = f"""
         <!DOCTYPE html>
         <html>
@@ -82,83 +129,20 @@ async def main():
                     font-family: 'Microsoft YaHei', sans-serif; color: white;
                 }}
                 .tag {{ background: #e50914; padding: 12px 35px; border-radius: 50px; font-size: 38px; font-weight: bold; margin-bottom: 35px; letter-spacing: 5px; box-shadow: 0 4px 15px rgba(229,9,20,0.5); }}
-                .title {{ font-size: 85px; font-weight: 900; color: #ffcc00; text-shadow: 4px 4px 15px rgba(0,0,0,0.9); text-align: center; line-height: 1.3; width: 90%; }}
+                .title {{ font-size: 75px; font-weight: 900; color: #ffcc00; text-shadow: 4px 4px 15px rgba(0,0,0,0.9); text-align: center; line-height: 1.3; width: 90%; }}
                 .subtitle {{ font-size: 45px; color: #00e5ff; margin-top: 50px; font-weight: bold; letter-spacing: 2px; }}
-                .footer {{ position: absolute; bottom: 30px; font-size: 28px; color: #777; }}
             </style>
         </head>
         <body>
-            <div class="tag">硬核数据复盘</div>
+            <div class="tag">真实数据速递</div>
             <div class="title">{SELECTED_HOOK.replace('！', '！<br>')}</div>
             <div class="subtitle">👉 纯客观 · 无感情 · 拒绝剧本 👈</div>
-            <div class="footer">ETF走势全景推演</div>
         </body>
         </html>
         """
         await page.set_content(cover_html)
         await page.wait_for_timeout(1000)
         await page.screenshot(path="cover_image.png")
-        
-        # 1. 抓取总览图
-        await page.goto(TARGET_URL, wait_until="networkidle")
-        await page.wait_for_timeout(3000) # 等待数据完全渲染
-        await page.screenshot(path="ss_main.png")
-        
-        # --- 👇 核心大升级：实时智能解析网页数据 👇 ---
-        print("🔍 正在实时抓取今日行情数据...")
-        etf_list = []
-        try:
-            # 获取页面上所有的行元素 (兼容各种表格和列表结构)
-            row_locators = page.locator("tr, .el-table__row, .row, li")
-            count = await row_locators.count()
-            
-            for i in range(count):
-                if len(etf_list) >= 4: # 只取排名前 4 的数据
-                    break
-                    
-                text = await row_locators.nth(i).inner_text()
-                # 将每一行内的文本按换行符拆分，过滤掉空行
-                lines = [line.strip() for line in text.split('\n') if line.strip()]
-                
-                # 智能识别逻辑：必须至少有3行数据，且第二行包含数字（对应股票代码）
-                if len(lines) >= 3 and any(c.isdigit() for c in lines[1]):
-                    # 1. 提取名称 (例如 "银行ETF (2) >" -> "银行ETF")
-                    name = lines[0].split('(')[0].replace('>', '').strip()
-                    
-                    # 2. 提取6位股票代码 (例如 "512800 07-13" -> "512800")
-                    code = ''.join(filter(str.isdigit, lines[1]))[:6]
-                    
-                    # 3. 提取涨跌幅 (根据截图，索引2通常是上午，索引4是全天。根据当前时间智能取值)
-                    # 如果元素不够长，就取最后一个带 % 号的值兜底
-                    try:
-                        if not IS_MIDDAY and len(lines) > 4:
-                            change = lines[4]
-                        else:
-                            change = lines[2]
-                    except:
-                        change = [L for L in lines if '%' in L][-1]
-                    
-                    # 确保提取到了正确的6位A股代码才加入列表
-                    if len(code) == 6:
-                        etf_list.append({"name": name, "code": code, "change": change})
-            
-            if not etf_list:
-                raise Exception("页面结构变动，未匹配到有效数据")
-                
-            print(f"✅ 成功抓取今日实时数据：")
-            for e in etf_list:
-                print(f"   - {e['name']} ({e['code']}): {e['change']}")
-                
-        except Exception as e:
-            print(f"⚠️ 实时抓取解析遇到问题 ({e})，启用兜底安全模式...")
-            # 只有当目标网页完全打不开或结构大改时，才会用这组数据保底，防止工作流崩溃
-            etf_list = [
-                {"name": "核心ETF1", "code": "510050", "change": "+0.0%"},
-                {"name": "核心ETF2", "code": "159928", "change": "+0.0%"},
-                {"name": "核心ETF3", "code": "512800", "change": "+0.0%"},
-                {"name": "核心ETF4", "code": "512170", "change": "+0.0%"}
-            ]
-        # --- 👆 实时智能解析网页数据结束 👆 ---
 
         # 2. 抓取专属带指标图表
         print("🌐 加载 TV 私有画板...")
