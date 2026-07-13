@@ -49,14 +49,16 @@ async def main():
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(viewport={'width': 1280, 'height': 720})
         
-        # 注入 TradingView Cookie
+        # 【核心修复1】双域名注入 Cookie，确保 100% 穿透登录墙，加载私有 ATR 和 RSI 指标
         tv_session = os.getenv('TV_SESSION_ID')
         if tv_session:
-            await context.add_cookies([{
-                'name': 'sessionid', 'value': tv_session,
-                'domain': '.tradingview.com', 'path': '/'
-            }])
-        
+            await context.add_cookies([
+                {'name': 'sessionid', 'value': tv_session, 'domain': '.tradingview.com', 'path': '/'},
+                {'name': 'sessionid', 'value': tv_session, 'domain': '.cn.tradingview.com', 'path': '/'}
+            ])
+        else:
+            print("⚠️ 警告：未检测到 TV_SESSION_ID，指标可能无法加载！")
+            
         page = await context.new_page()
         
         # 1. 抓取总览图
@@ -64,7 +66,6 @@ async def main():
         await page.wait_for_timeout(2000)
         await page.screenshot(path="ss_main.png")
         
-        # 兜底测试数据（改为 4 只）
         etf_list = [
             {"name": "酒ETF", "code": "512690", "change": "+4.5%"},
             {"name": "医疗ETF", "code": "512170", "change": "+3.9%"},
@@ -72,44 +73,26 @@ async def main():
             {"name": "银行ETF", "code": "512800", "change": "+2.2%"}
         ]
 
-        # 💡 如果你需要真实抓取前4个数据，可以放开这里的注释替换上面的死数据
-        # try:
-        #     rows = await page.locator("table tr").all()
-        #     etf_list = []
-        #     for row in rows[1:5]: # 只取前4个
-        #         text = await row.inner_text()
-        #         lines = text.split('\n')
-        #         name = lines[0].split('(')[0].strip() if len(lines) > 0 else "核心ETF"
-        #         code = "".join(filter(str.isdigit, lines[0])) if len(lines) > 0 else "510050"
-        #         change = lines[-2] if IS_MIDDAY else lines[-1] 
-        #         etf_list.append({"name": name, "code": code, "change": change})
-        # except Exception as e:
-        #     print(f"解析失败: {e}")
-
         # 2. 抓取专属带指标图表
-        print("🌐 登录并加载带有自定义指标的私有画板...")
-        await page.goto(TV_CHART_URL, wait_until="networkidle", timeout=60000)
-        await page.wait_for_timeout(8000) # 给予充分时间加载 Pine Script 指标
-
+        print("🌐 正在使用账号身份加载私有画板...")
+        # 确保基础 URL 结尾格式正确
+        base_chart_url = TV_CHART_URL.rstrip('/')
+        
         for i, etf in enumerate(etf_list):
             symbol = get_tv_symbol(etf['code'])
             print(f"📸 正在抓取第 {i+1}/4 只 ETF: {symbol} (3小时与日线)")
             
-            await page.keyboard.type(symbol)
-            await page.wait_for_timeout(500)
-            await page.keyboard.press("Enter")
-            await page.wait_for_timeout(3000)
-            
-            await page.keyboard.type("180")
-            await page.wait_for_timeout(500)
-            await page.keyboard.press("Enter")
-            await page.wait_for_timeout(2000)
+            # 【核心修复2】放弃键盘输入，改用 URL 强制传递标的和周期，彻底解决不切换画面的 BUG
+            # 抓取 3小时线 (interval=180)
+            url_3h = f"{base_chart_url}/?symbol={symbol}&interval=180"
+            await page.goto(url_3h, wait_until="networkidle", timeout=60000)
+            await page.wait_for_timeout(6000) # 给予 6 秒充足时间让 Pine Script 指标计算渲染
             await page.screenshot(path=f"ss_etf_{i}_3h.png")
             
-            await page.keyboard.type("1D")
-            await page.wait_for_timeout(500)
-            await page.keyboard.press("Enter")
-            await page.wait_for_timeout(2000)
+            # 抓取 日线 (interval=1D)
+            url_1d = f"{base_chart_url}/?symbol={symbol}&interval=1D"
+            await page.goto(url_1d, wait_until="networkidle", timeout=60000)
+            await page.wait_for_timeout(6000)
             await page.screenshot(path=f"ss_etf_{i}_1d.png")
 
         await browser.close()
