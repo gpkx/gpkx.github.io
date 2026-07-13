@@ -62,7 +62,7 @@ async def main():
         # 1. 抓取总览图与真实数据
         print("🔍 正在实时抓取今日行情数据...")
         await page.goto(TARGET_URL, wait_until="networkidle")
-        await page.wait_for_timeout(3000) 
+        await page.wait_for_timeout(5000) 
         await page.screenshot(path="ss_main.png")
         
         etf_list = []
@@ -71,27 +71,63 @@ async def main():
             count = await row_locators.count()
             
             for i in range(count):
-                if len(etf_list) >= 4: break
+                if len(etf_list) >= 4:
+                    break
+                    
                 text = await row_locators.nth(i).inner_text()
+                text = re.sub(r'[\t\r\n]+', '\n', text)
                 lines = [line.strip() for line in text.split('\n') if line.strip()]
                 
-                if len(lines) >= 3 and any(c.isdigit() for c in lines[1]):
-                    name = lines[0].split('(')[0].replace('>', '').strip()
-                    code = ''.join(filter(str.isdigit, lines[1]))[:6]
-                    try:
-                        change = lines[4] if not IS_MIDDAY and len(lines) > 4 else lines[2]
-                    except:
-                        change = [L for L in lines if '%' in L][-1]
+                code = None
+                code_idx = -1
+                for idx, line in enumerate(lines):
+                    match = re.search(r'\b(5\d{5}|1\d{5})\b', line)
+                    if match:
+                        code = match.group(1)
+                        code_idx = idx
+                        break
+                
+                if code and code_idx >= 0:
+                    raw_name = lines[0]
+                    name = re.sub(r'\(.*?\)|>', '', raw_name).strip()
+                    pcts = [val for val in lines[code_idx+1:] if '%' in val]
                     
-                    if len(code) == 6:
-                        etf_list.append({"name": name, "code": code, "change": change})
-            if not etf_list: raise Exception("未匹配到数据")
+                    if pcts:
+                        if not IS_MIDDAY and len(pcts) >= 2:
+                            change = pcts[1]
+                        else:
+                            change = pcts[0]
+                            
+                        if not any(e['code'] == code for e in etf_list):
+                            etf_list.append({"name": name, "code": code, "change": change})
+            
+            if not etf_list:
+                print("⚠️ 页面无符合特征的ETF数据。")
+                
         except Exception as e:
-            print(f"⚠️ 解析异常 ({e})，启用兜底...")
-            etf_list = [{"name": "核心ETF", "code": "510050", "change": "+0.0%"}] * 4
+            print(f"⚠️ 解析异常 ({e})")
+            etf_list = [] # 发生异常时，直接将列表置空，触发下方的熔断机制
+
+        # ==========================================
+        # 🛑 核心修改：触发熔断机制（宁缺毋滥）
+        # ==========================================
+        if not etf_list:
+            print("🛑 今日无触发的 ETF 数据，中止视频生成，发送通知...")
+            await browser.close() # 关闭浏览器
+            
+            # 组装一条简单的文本消息发给 Telegram
+            bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
+            chat_id = os.getenv('TELEGRAM_CHAT_ID')
+            if bot_token and chat_id:
+                msg_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+                msg_text = f"📭 【{TIME_LABEL} 监控报告】\n\n今日网页暂无符合条件的 ETF 触发（或网页无数据）。\n为保证数据真实性，本次自动短视频暂停生成。"
+                requests.post(msg_url, data={'chat_id': chat_id, 'text': msg_text})
+                
+            return # 优雅地提前结束整个 Python 脚本，不再往下执行配音和视频合成
+        # ==========================================
 
         # --- 👇 新增：数据驱动的动态钩子引擎 👇 ---
-        global SELECTED_HOOK # 声明全局变量，供最后发送 Telegram 时使用
+        global SELECTED_HOOK
         print("🧠 正在根据今日数据生成爆款标题...")
         
         # 找出今天波动最大（最吸睛）的一只 ETF
