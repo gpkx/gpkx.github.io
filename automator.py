@@ -100,16 +100,64 @@ async def main():
         
         # 1. 抓取总览图
         await page.goto(TARGET_URL, wait_until="networkidle")
-        await page.wait_for_timeout(2000)
+        await page.wait_for_timeout(3000) # 等待数据完全渲染
         await page.screenshot(path="ss_main.png")
         
-        # 4 只 ETF 测试数据
-        etf_list = [
-            {"name": "酒ETF", "code": "512690", "change": "+4.5%"},
-            {"name": "医疗ETF", "code": "512170", "change": "+3.9%"},
-            {"name": "消费ETF", "code": "159928", "change": "+3.4%"},
-            {"name": "银行ETF", "code": "512800", "change": "+2.2%"}
-        ]
+        # --- 👇 核心大升级：实时智能解析网页数据 👇 ---
+        print("🔍 正在实时抓取今日行情数据...")
+        etf_list = []
+        try:
+            # 获取页面上所有的行元素 (兼容各种表格和列表结构)
+            row_locators = page.locator("tr, .el-table__row, .row, li")
+            count = await row_locators.count()
+            
+            for i in range(count):
+                if len(etf_list) >= 4: # 只取排名前 4 的数据
+                    break
+                    
+                text = await row_locators.nth(i).inner_text()
+                # 将每一行内的文本按换行符拆分，过滤掉空行
+                lines = [line.strip() for line in text.split('\n') if line.strip()]
+                
+                # 智能识别逻辑：必须至少有3行数据，且第二行包含数字（对应股票代码）
+                if len(lines) >= 3 and any(c.isdigit() for c in lines[1]):
+                    # 1. 提取名称 (例如 "银行ETF (2) >" -> "银行ETF")
+                    name = lines[0].split('(')[0].replace('>', '').strip()
+                    
+                    # 2. 提取6位股票代码 (例如 "512800 07-13" -> "512800")
+                    code = ''.join(filter(str.isdigit, lines[1]))[:6]
+                    
+                    # 3. 提取涨跌幅 (根据截图，索引2通常是上午，索引4是全天。根据当前时间智能取值)
+                    # 如果元素不够长，就取最后一个带 % 号的值兜底
+                    try:
+                        if not IS_MIDDAY and len(lines) > 4:
+                            change = lines[4]
+                        else:
+                            change = lines[2]
+                    except:
+                        change = [L for L in lines if '%' in L][-1]
+                    
+                    # 确保提取到了正确的6位A股代码才加入列表
+                    if len(code) == 6:
+                        etf_list.append({"name": name, "code": code, "change": change})
+            
+            if not etf_list:
+                raise Exception("页面结构变动，未匹配到有效数据")
+                
+            print(f"✅ 成功抓取今日实时数据：")
+            for e in etf_list:
+                print(f"   - {e['name']} ({e['code']}): {e['change']}")
+                
+        except Exception as e:
+            print(f"⚠️ 实时抓取解析遇到问题 ({e})，启用兜底安全模式...")
+            # 只有当目标网页完全打不开或结构大改时，才会用这组数据保底，防止工作流崩溃
+            etf_list = [
+                {"name": "核心ETF1", "code": "510050", "change": "+0.0%"},
+                {"name": "核心ETF2", "code": "159928", "change": "+0.0%"},
+                {"name": "核心ETF3", "code": "512800", "change": "+0.0%"},
+                {"name": "核心ETF4", "code": "512170", "change": "+0.0%"}
+            ]
+        # --- 👆 实时智能解析网页数据结束 👆 ---
 
         # 2. 抓取专属带指标图表
         print("🌐 加载 TV 私有画板...")
