@@ -12,29 +12,30 @@ import requests
 
 # 1. 基础配置
 TARGET_URL = "https://gpkx.github.io/"
-TV_CHART_URL = "https://cn.tradingview.com/chart/fxUqvHrk/" # 你的专属带指标画板
+TV_CHART_URL = "https://cn.tradingview.com/chart/Umn0unG5/" 
 TZ = pytz.timezone('Asia/Shanghai')
 NOW = datetime.now(TZ)
 IS_MIDDAY = NOW.hour < 13
 TIME_LABEL = "午盘" if IS_MIDDAY else "收盘"
 FILE_SUFFIX = NOW.strftime("%Y%m%d_%H%M")
 
-# 2. 合规文案与动态钩子标题
-INTRO_TEXT = f"各位观众朋友大家好，欢迎关注最新的行业ETF客观数据跟踪。截至{TIME_LABEL}，我们来梳理一下市场核心板块的最新动态。"
-OUTRO_TEXT = "以上数据均源自公开市场客观统计，仅供全景量化复盘参考，不构成任何投资建议或操作引导。理财有风险，入市需谨慎。"
+# 2. 严谨的量化专属文案模板
+INTRO_TEXT = f"各位观众朋友大家好，欢迎关注最新的行业ETF客观数据跟踪。截至{TIME_LABEL}，我们来梳理一下核心板块的量化监控指标最新读数。"
+OUTRO_TEXT = "特别提示，以上数值均为特定策略下的 A T R 监控指标，不代表标的实际涨跌幅。数据仅供客观复盘参考，不构成任何投资建议。"
 
 def get_tv_symbol(code):
     if code.startswith(('5', '6')): return f"SSE:{code}"
     return f"SZSE:{code}"
 
-def format_trend(val_str):
+def format_quant_voice(val_str):
+    # 将数值转化为 TTS 语音友好的客观播报格式
     try:
         val = float(val_str.replace('%', '').replace('+', ''))
-        if val > 0: return "震荡上行", f"正的{abs(val)}%"
-        elif val < 0: return "震荡回调", f"负的{abs(val)}%"
-        return "横盘震荡", "零轴附近"
+        if val > 0: return f"正的百分之{abs(val)}"
+        elif val < 0: return f"负的百分之{abs(val)}"
+        return "零轴附近"
     except:
-        return "平稳运行", "暂无明显波动"
+        return "无有效读数"
 
 def get_audio_duration(file_path):
     cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", 
@@ -43,13 +44,13 @@ def get_audio_duration(file_path):
     return float(result.stdout.strip())
 
 async def main():
-    print(f"🚀 开始执行【运营增强版】工作流... {NOW}")
+    print(f"🚀 开始执行【量化严谨版】全自动工作流... {NOW}")
     
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(viewport={'width': 1280, 'height': 720})
         
-        # 注入 TradingView Cookie
+        # 注入 Cookie 破解登录墙加载私有指标
         tv_session = os.getenv('TV_SESSION_ID')
         if tv_session:
             await context.add_cookies([
@@ -59,7 +60,7 @@ async def main():
             
         page = await context.new_page()
 
-        # 1. 抓取总览图与真实数据
+        # --- A. 抓取网页真实数据（正则防弹版） ---
         print("🔍 正在实时抓取今日行情数据...")
         await page.goto(TARGET_URL, wait_until="networkidle")
         await page.wait_for_timeout(5000) 
@@ -75,9 +76,11 @@ async def main():
                     break
                     
                 text = await row_locators.nth(i).inner_text()
+                # 将杂乱的 Tab 和空格统一替换为换行符
                 text = re.sub(r'[\t\r\n]+', '\n', text)
                 lines = [line.strip() for line in text.split('\n') if line.strip()]
                 
+                # 正则匹配 A 股 ETF 6位代码
                 code = None
                 code_idx = -1
                 for idx, line in enumerate(lines):
@@ -102,35 +105,34 @@ async def main():
                             etf_list.append({"name": name, "code": code, "change": change})
             
             if not etf_list:
-                print("⚠️ 页面无符合特征的ETF数据。")
+                print("⚠️ 页面未匹配到符合特征的ETF数据。")
                 
         except Exception as e:
-            print(f"⚠️ 解析异常 ({e})")
-            etf_list = [] # 发生异常时，直接将列表置空，触发下方的熔断机制
+            print(f"⚠️ 网页解析异常 ({e})")
+            etf_list = []
 
         # ==========================================
-        # 🛑 核心修改：触发熔断机制（宁缺毋滥）
+        # 🛑 核心熔断机制：无数据即停止，保证宁缺毋滥
         # ==========================================
         if not etf_list:
-            print("🛑 今日无触发的 ETF 数据，中止视频生成，发送通知...")
-            await browser.close() # 关闭浏览器
+            print("🛑 今日无触发数据，中止视频生成，静默汇报...")
+            await browser.close()
             
-            # 组装一条简单的文本消息发给 Telegram
             bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
             chat_id = os.getenv('TELEGRAM_CHAT_ID')
             if bot_token and chat_id:
                 msg_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-                msg_text = f"📭 【{TIME_LABEL} 监控报告】\n\n今日网页暂无符合条件的 ETF 触发（或网页无数据）。\n为保证数据真实性，本次自动短视频暂停生成。"
+                msg_text = f"📭 【{TIME_LABEL} 监控报告】\n\n今日网页暂无符合条件的 ETF 触发（或无有效读数）。\n为保证数据严谨性，本次自动短视频及图文暂停生成。"
                 requests.post(msg_url, data={'chat_id': chat_id, 'text': msg_text})
                 
-            return # 优雅地提前结束整个 Python 脚本，不再往下执行配音和视频合成
+            return # 优雅结束程序
         # ==========================================
 
-        # --- 👇 新增：数据驱动的动态钩子引擎 👇 ---
+        # --- 👇 数据驱动的量化客观钩子引擎 👇 ---
         global SELECTED_HOOK
-        print("🧠 正在根据今日数据生成爆款标题...")
+        print("🧠 正在根据今日数据生成严谨标题...")
         
-        # 找出今天波动最大（最吸睛）的一只 ETF
+        # 找出今天绝对值波动最大的 ETF
         top_etf = etf_list[0]
         max_abs_val = -1
         for e in etf_list:
@@ -142,17 +144,13 @@ async def main():
             except:
                 pass
         
-        # 根据涨跌情况，智能匹配合规的话术词汇
-        is_up = '+' in top_etf['change']
-        action_word = "强势领跑" if is_up else "承压回调"
-        emoji = "🚀" if is_up else "⚠️"
-        
-        # 动态拼接最终标题
-        SELECTED_HOOK = f"{emoji} {TIME_LABEL}异动！{top_etf['name']}{action_word}{top_etf['change']}，核心板块全景推演！"
+        action_word = "指标数值达" 
+        emoji = "📊" 
+        SELECTED_HOOK = f"{emoji} {TIME_LABEL}量化追踪！{top_etf['name']}{action_word}{top_etf['change']}，核心数据客观复盘！"
         print(f"🎯 最终生成钩子标题: {SELECTED_HOOK}")
 
-        # --- 🎨 使用动态生成的标题渲染高转化率封面 ---
-        print("🎨 正在渲染包含真实数据的封面图...")
+        # --- 🎨 渲染沉稳的量化风封面图 ---
+        print("🎨 正在渲染包含真实数据的量化风封面图...")
         cover_html = f"""
         <!DOCTYPE html>
         <html>
@@ -161,19 +159,19 @@ async def main():
             <style>
                 body {{
                     margin: 0; padding: 0; width: 1280px; height: 720px;
-                    background: linear-gradient(135deg, #121212 0%, #2b0000 100%);
+                    background: linear-gradient(135deg, #121212 0%, #1a2a3a 100%);
                     display: flex; flex-direction: column; justify-content: center; align-items: center;
                     font-family: 'Microsoft YaHei', sans-serif; color: white;
                 }}
-                .tag {{ background: #e50914; padding: 12px 35px; border-radius: 50px; font-size: 38px; font-weight: bold; margin-bottom: 35px; letter-spacing: 5px; box-shadow: 0 4px 15px rgba(229,9,20,0.5); }}
+                .tag {{ background: #0078d7; padding: 12px 35px; border-radius: 50px; font-size: 38px; font-weight: bold; margin-bottom: 35px; letter-spacing: 5px; box-shadow: 0 4px 15px rgba(0,120,215,0.5); }}
                 .title {{ font-size: 75px; font-weight: 900; color: #ffcc00; text-shadow: 4px 4px 15px rgba(0,0,0,0.9); text-align: center; line-height: 1.3; width: 90%; }}
                 .subtitle {{ font-size: 45px; color: #00e5ff; margin-top: 50px; font-weight: bold; letter-spacing: 2px; }}
             </style>
         </head>
         <body>
-            <div class="tag">真实数据速递</div>
+            <div class="tag">量化监控速递</div>
             <div class="title">{SELECTED_HOOK.replace('！', '！<br>')}</div>
-            <div class="subtitle">👉 纯客观 · 无感情 · 拒绝剧本 👈</div>
+            <div class="subtitle">👉 数据记录 · 客观呈现 · 杜绝预测 👈</div>
         </body>
         </html>
         """
@@ -181,8 +179,8 @@ async def main():
         await page.wait_for_timeout(1000)
         await page.screenshot(path="cover_image.png")
 
-        # 2. 抓取专属带指标图表
-        print("🌐 加载 TV 私有画板...")
+        # --- 📸 抓取 TV 专属带指标图表 ---
+        print("🌐 正在使用账号身份加载私有画板...")
         base_chart_url = TV_CHART_URL.rstrip('/')
         for i, etf in enumerate(etf_list):
             symbol = get_tv_symbol(etf['code'])
@@ -197,22 +195,21 @@ async def main():
 
         await browser.close()
 
-    # --- B. 语音与画面底层时间轴 ---
-    print("🎵 生成 TTS 语音...")
+    # --- B. 语音合成与画面底层时间轴 ---
+    print("🎵 开始生成 TTS 语音并构建时间轴...")
     image_timeline = []
     audio_files = []
     
-    # 播放开场白时，展示刚刚生成的带有超大黄字的封面图
     await edge_tts.Communicate(INTRO_TEXT, "zh-CN-YunxiNeural").save("audio_intro.mp3")
     dur_intro = get_audio_duration("audio_intro.mp3")
     image_timeline.append(f"file 'cover_image.png'\nduration {dur_intro:.3f}\n")
     audio_files.append("audio_intro.mp3")
     full_text = INTRO_TEXT + "\n"
 
-    transition_words = ["首先，", "紧接着，", "再来关注", "最后，"]
+    transition_words = ["首先，", "接下来，", "再来看", "最后是"]
     for i, etf in enumerate(etf_list):
-        trend, readable_val = format_trend(etf['change'])
-        etf_text = f"{transition_words[i]}{etf['name']}今日表现为{trend}，变动幅度和比例为{readable_val}。"
+        readable_val = format_quant_voice(etf['change'])
+        etf_text = f"{transition_words[i]}{etf['name']}，当前的 A T R 监控数值录得{readable_val}。"
         full_text += etf_text + "\n"
         
         etf_audio = f"audio_etf_{i}.mp3"
@@ -235,15 +232,11 @@ async def main():
     with open("audio_input.txt", "w") as f: f.writelines([f"file '{a}'\n" for a in audio_files])
 
     # --- C. 电影级底层双轨混流混音 ---
-    print("🎬 正在进行终极音画合成（带BGM自适应避让）...")
+    print("🎬 正在进行终极音画合成...")
     final_video = f"etf_report_sync_{FILE_SUFFIX}.mp4"
     
-    # 检测仓库中是否有用户上传的背景音乐
     if os.path.exists("bgm.mp3"):
-        print("🎧 检测到背景音乐 bgm.mp3，开启双轨混音模式...")
-        # 黑科技混音算法：
-        # [1:a]是主讲人声音音量设为1.0；[2:a]是BGM，音量压低到0.15；
-        # duration=first 确保视频总长度跟随解说录音结束，音乐自动淡出或裁切。
+        print("🎧 检测到 bgm.mp3，开启双轨自适应混音模式...")
         ffmpeg_cmd = [
             "ffmpeg", "-y", 
             "-f", "concat", "-safe", "0", "-i", "video_input.txt", 
@@ -256,7 +249,7 @@ async def main():
             final_video
         ]
     else:
-        print("🔇 未检测到 bgm.mp3，使用无纯净版语音合成...")
+        print("🔇 未检测到 bgm.mp3，使用无配乐纯净版语音合成...")
         ffmpeg_cmd = [
             "ffmpeg", "-y", 
             "-f", "concat", "-safe", "0", "-i", "video_input.txt", 
@@ -273,44 +266,36 @@ async def main():
     bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
     chat_id = os.getenv('TELEGRAM_CHAT_ID')
     
-    # 【第一发：发送生成的短视频】
     print("1️⃣ 正在发送短视频...")
     video_url = f"https://api.telegram.org/bot{bot_token}/sendVideo"
     video_caption = f"🎬 【视频素材】\n⭐⭐ {SELECTED_HOOK} ⭐⭐\n\n{full_text}"
     with open(final_video, 'rb') as video_file:
         requests.post(video_url, data={'chat_id': chat_id, 'caption': video_caption}, files={'video': video_file}, timeout=120)
 
-    # 【第二发：发送小红书/公众号专属排版文案】
     print("2️⃣ 正在发送图文排版文案...")
-    # 对原有的口语化文案进行图文网感改造
     xhs_body = full_text.replace("各位观众朋友大家好，欢迎关注", "🔥 欢迎关注")\
                         .replace("首先，", "🟢 ")\
-                        .replace("紧接着，", "🟢 ")\
-                        .replace("再来关注", "🟢 ")\
-                        .replace("随后是", "🟢 ")\
-                        .replace("最后，", "🟢 ")\
-                        .replace("以上数据均源自", "💡 以上数据均源自")
+                        .replace("接下来，", "🟢 ")\
+                        .replace("再来看", "🟢 ")\
+                        .replace("最后是", "🟢 ")\
+                        .replace("特别提示，以上数值均为", "💡 特别提示：以上数值均为")
     
     xhs_text = (
         f"📝 【图文排版素材（直接长按复制）】\n\n"
         f"【标题建议】{SELECTED_HOOK}\n\n"
         f"【正文内容】\n{xhs_body}\n\n"
-        f"#ETF #股市复盘 #量化交易 #行情分析 #A股 #投资记录"
+        f"#ETF #量化投资 #ATR指标 #复盘记录 #A股 #交易策略"
     )
     msg_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     requests.post(msg_url, data={'chat_id': chat_id, 'text': xhs_text})
 
-    # 【第三发：将所有高清截图作为“相册(Album)”发送】
     print("3️⃣ 正在发送高清配图相册...")
     album_url = f"https://api.telegram.org/bot{bot_token}/sendMediaGroup"
-    
-    # 收集所有的图片路径 (封面 + 总数据 + 4只ETF的3H和1D图)
     img_list = ["cover_image.png", "ss_main.png"]
     for i in range(len(etf_list)):
         img_list.append(f"ss_etf_{i}_3h.png")
         img_list.append(f"ss_etf_{i}_1d.png")
         
-    # Telegram 限制每个相册最多 10 张图，这里做动态切分发送，确保极其稳定
     for i in range(0, len(img_list), 10):
         chunk = img_list[i:i+10]
         media_group = []
@@ -322,11 +307,10 @@ async def main():
         
         requests.post(album_url, data={'chat_id': chat_id, 'media': json.dumps(media_group)}, files=files, timeout=60)
         
-        # 发送完毕后关闭文件占用
         for f in files.values():
             f.close()
             
-    print("🎉 全平台矩阵素材（视频+排版文案+无损套图）已全部推送到你的手机！")
+    print("🎉 全平台矩阵素材（视频+排版文案+无损套图）已全部推送！")
 
 if __name__ == "__main__":
     asyncio.run(main())
