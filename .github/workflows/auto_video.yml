@@ -1,0 +1,41 @@
+name: Automated ETF Video Workflow
+
+on:
+  schedule:
+    - cron: '40 3 * * 1-5'
+    - cron: '0 8 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  build-and-run:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-with: '3.10'
+        cache: 'pip'
+
+    - name: Install System Dependencies (FFmpeg)
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ffmpeg
+
+    - name: Install Python Dependencies
+      run: |
+        pip install -r requirements.txt
+
+    - name: Install Playwright Browsers
+      run: |
+        playwright install chromium --with-deps
+
+    - name: Run Automation Script
+      env:
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      run: |
+        python automator.py
