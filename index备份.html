@@ -31,7 +31,7 @@
             background-repeat: repeat;
         }
         
-        /* 优化滚动条样式 (避免PC端太突兀) */
+        /* 优化滚动条样式 */
         .custom-scrollbar::-webkit-scrollbar {
             width: 6px;
             height: 6px;
@@ -55,8 +55,8 @@
     <div class="watermark-overlay"></div>
 
     <div id="app" v-cloak>
-        <header class="bg-slate-800 text-white shadow-md sticky top-0 z-50">
-            <div class="container mx-auto px-4 py-3 flex justify-between items-center">
+        <header class="bg-slate-800 text-white shadow-md sticky top-0 z-50 h-[56px]">
+            <div class="container mx-auto px-4 h-full flex justify-between items-center">
                 <h1 class="text-lg font-bold flex items-center gap-2">
                     <i class="fa-solid fa-chart-line text-emerald-400"></i> ETF涨跌幅实时监控
                 </h1>
@@ -73,19 +73,21 @@
             <div v-else class="space-y-3">
                 
                 <!-- 顶部控制区：下拉筛选器 + 搜索功能 -->
-                <div class="flex flex-col sm:flex-row gap-2 relative z-40">
-                    <!-- 下拉筛选器 -->
-                    <div class="flex-1 bg-white p-2 rounded-xl shadow-sm border border-gray-100 relative">
-                        <button @click.stop="toggleDropdown" class="w-full flex items-center justify-between border border-gray-300 rounded-lg px-4 py-2 bg-gray-50 text-sm font-semibold hover:bg-gray-100 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500">
-                            <span class="flex items-center gap-2">
-                                <span v-if="selectedDate === 'latest'">🔥 最新200条触发记录</span>
-                                <span v-else>📅 指定日期：{{ selectedDate }}</span>
+                <!-- 🌟 调整：强制同一行显示 (flex-row)，并配置自适应收缩 -->
+                <div class="flex flex-row gap-2 relative z-40">
+                    
+                    <div class="flex-1 bg-white rounded-xl shadow-sm border border-gray-100 relative min-w-0">
+                        <button @click.stop="toggleDropdown" class="w-full flex items-center justify-between border-transparent rounded-xl px-3 py-2.5 text-sm font-semibold hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <!-- 🌟 调整：添加 truncate 防止搜索框展开时文字撑破屏幕 -->
+                            <span class="flex items-center gap-1.5 truncate">
+                                <span v-if="selectedDate === 'latest'" class="truncate">🔥 最新200条触发记录</span>
+                                <span v-else class="truncate">📅 指定日期：{{ selectedDate }}</span>
                             </span>
-                            <i class="fa-solid fa-chevron-down text-gray-400 transition-transform duration-200" :class="{'rotate-180': showDropdown}"></i>
+                            <i class="fa-solid fa-chevron-down text-gray-400 transition-transform duration-200 ml-1 shrink-0" :class="{'rotate-180': showDropdown}"></i>
                         </button>
 
                         <!-- 下拉弹窗面板 -->
-                        <div v-if="showDropdown" @click.stop class="absolute left-0 mt-2 bg-white border border-gray-200 rounded-xl shadow-xl z-50 p-4 w-full sm:w-80">
+                        <div v-if="showDropdown" @click.stop class="absolute left-0 mt-2 bg-white border border-gray-200 rounded-xl shadow-xl z-50 p-4 w-[90vw] max-w-sm sm:w-80">
                             <button @click="selectLatest" class="w-full text-left px-3 py-2 text-sm font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg mb-3 flex items-center gap-2 transition-colors">
                                 🔥 最新200条触发记录
                             </button>
@@ -124,34 +126,76 @@
                     </div>
 
                     <!-- 动态搜索框 -->
-                    <div class="bg-white p-2 rounded-xl shadow-sm border border-gray-100 flex items-center transition-all duration-300" :class="showSearch ? 'w-full sm:w-64' : 'w-auto cursor-pointer hover:bg-gray-50'" @click="openSearch">
-                        <i class="fa-solid fa-magnifying-glass text-gray-500 px-2 cursor-pointer hover:text-blue-500" @click.stop="toggleSearch"></i>
+                    <!-- 🌟 调整：展开时占用部分宽度而非全宽，避免手机端挤压 -->
+                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 flex items-center transition-all duration-300 shrink-0" :class="showSearch ? 'w-[55%] sm:w-64' : 'w-auto cursor-pointer hover:bg-gray-50'" @click="openSearch">
+                        <i class="fa-solid fa-magnifying-glass text-gray-500 px-3 py-3 cursor-pointer hover:text-blue-500" @click.stop="toggleSearch"></i>
                         <input 
                             v-show="showSearch" 
                             ref="searchInput" 
                             v-model="searchQuery" 
                             type="text" 
-                            placeholder="输入 ETF 名称或代码..." 
-                            class="w-full bg-transparent border-none outline-none text-sm font-medium text-gray-700 px-2 focus:ring-0"
+                            placeholder="搜名称或代码..." 
+                            class="w-full bg-transparent border-none outline-none text-sm font-medium text-gray-700 py-2.5 pr-2 focus:ring-0"
                             @click.stop
                         >
-                        <i v-show="showSearch && searchQuery" class="fa-solid fa-xmark text-gray-400 px-2 cursor-pointer hover:text-red-500 text-xs" @click.stop="searchQuery = ''"></i>
+                        <i v-show="showSearch && searchQuery" class="fa-solid fa-xmark text-gray-400 px-3 py-3 cursor-pointer hover:text-red-500 text-xs" @click.stop="searchQuery = ''"></i>
                     </div>
                 </div>
 
                 <!-- 监控看板表格区 -->
-                <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden relative">
-                    <!-- 调整：恢复滚动条，并确保 X 轴（左右滑动）在移动端生效 -->
-                    <div class="overflow-auto max-h-[75vh] w-full custom-scrollbar">
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 relative">
+                    <div class="w-full custom-scrollbar overflow-x-auto md:overflow-visible">
                         <table class="w-full text-center border-collapse whitespace-nowrap min-w-max">
-                            <thead class="sticky top-0 bg-slate-100 shadow-sm z-20">
-                                <tr class="text-sm font-bold text-slate-700">
-                                    <!-- 调整：此处改为 text-center 使“ETF名称”居中显示 -->
-                                    <th class="p-2 md:p-3 text-center sticky left-0 bg-slate-100 z-30 shadow-[1px_0_0_0_#e2e8f0] etf-name-column">ETF名称</th>
-                                    <th class="p-2 md:p-3">上午</th>
-                                    <th class="p-2 md:p-3">下午</th>
-                                    <th class="p-2 md:p-3">全天</th>
-                                    <th class="p-2 md:p-3">本周</th>
+                            
+                            <!-- 🌟 核心修复：手机端用 top-0 修复空白断层溢出；电脑端 md 屏幕才启用 top-[56px] 悬浮吸顶 -->
+                            <thead class="sticky top-0 md:top-[56px] bg-slate-100 shadow-sm z-30">
+                                <tr class="text-sm font-bold text-slate-700 select-none">
+                                    <th class="py-2.5 px-2 md:px-3 text-center sticky left-0 bg-slate-100 z-40 shadow-[1px_0_0_0_#e2e8f0] etf-name-column cursor-pointer hover:bg-slate-200 transition-colors" @click="handleSort('etf_name')">
+                                        <div class="flex items-center justify-center gap-1">
+                                            ETF名称
+                                            <div class="flex flex-col text-[9px] leading-[8px] text-gray-300">
+                                                <i class="fa-solid fa-caret-up" :class="{'text-blue-600': sortColumn === 'etf_name' && sortOrder === 'asc'}"></i>
+                                                <i class="fa-solid fa-caret-down" :class="{'text-blue-600': sortColumn === 'etf_name' && sortOrder === 'desc'}"></i>
+                                            </div>
+                                        </div>
+                                    </th>
+                                    
+                                    <th class="py-2.5 px-2 md:px-3 cursor-pointer hover:bg-slate-200 transition-colors" @click="handleSort('am_status')">
+                                        <div class="flex items-center justify-center gap-1">
+                                            上午
+                                            <div class="flex flex-col text-[9px] leading-[8px] text-gray-300">
+                                                <i class="fa-solid fa-caret-up" :class="{'text-blue-600': sortColumn === 'am_status' && sortOrder === 'asc'}"></i>
+                                                <i class="fa-solid fa-caret-down" :class="{'text-blue-600': sortColumn === 'am_status' && sortOrder === 'desc'}"></i>
+                                            </div>
+                                        </div>
+                                    </th>
+                                    <th class="py-2.5 px-2 md:px-3 cursor-pointer hover:bg-slate-200 transition-colors" @click="handleSort('pm_status')">
+                                        <div class="flex items-center justify-center gap-1">
+                                            下午
+                                            <div class="flex flex-col text-[9px] leading-[8px] text-gray-300">
+                                                <i class="fa-solid fa-caret-up" :class="{'text-blue-600': sortColumn === 'pm_status' && sortOrder === 'asc'}"></i>
+                                                <i class="fa-solid fa-caret-down" :class="{'text-blue-600': sortColumn === 'pm_status' && sortOrder === 'desc'}"></i>
+                                            </div>
+                                        </div>
+                                    </th>
+                                    <th class="py-2.5 px-2 md:px-3 cursor-pointer hover:bg-slate-200 transition-colors" @click="handleSort('day_status')">
+                                        <div class="flex items-center justify-center gap-1">
+                                            全天
+                                            <div class="flex flex-col text-[9px] leading-[8px] text-gray-300">
+                                                <i class="fa-solid fa-caret-up" :class="{'text-blue-600': sortColumn === 'day_status' && sortOrder === 'asc'}"></i>
+                                                <i class="fa-solid fa-caret-down" :class="{'text-blue-600': sortColumn === 'day_status' && sortOrder === 'desc'}"></i>
+                                            </div>
+                                        </div>
+                                    </th>
+                                    <th class="py-2.5 px-2 md:px-3 cursor-pointer hover:bg-slate-200 transition-colors" @click="handleSort('week_status')">
+                                        <div class="flex items-center justify-center gap-1">
+                                            本周
+                                            <div class="flex flex-col text-[9px] leading-[8px] text-gray-300">
+                                                <i class="fa-solid fa-caret-up" :class="{'text-blue-600': sortColumn === 'week_status' && sortOrder === 'asc'}"></i>
+                                                <i class="fa-solid fa-caret-down" :class="{'text-blue-600': sortColumn === 'week_status' && sortOrder === 'desc'}"></i>
+                                            </div>
+                                        </div>
+                                    </th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-gray-100 text-[15px]">
@@ -249,6 +293,9 @@
                 const currentYear = ref(new Date().getFullYear());
                 const currentMonth = ref(new Date().getMonth()); 
 
+                const sortColumn = ref(null); 
+                const sortOrder = ref('desc'); 
+
                 const uniqueDatesSet = computed(() => {
                     const validDates = allData.value
                         .filter(item => (item.am_status || item.pm_status || item.day_status || item.week_status))
@@ -298,6 +345,20 @@
                 const selectDate = (dateStr) => {
                     selectedDate.value = dateStr;
                     closeDropdown();
+                };
+
+                const handleSort = (column) => {
+                    if (sortColumn.value === column) {
+                        if (sortOrder.value === 'desc') {
+                            sortOrder.value = 'asc';
+                        } else {
+                            sortColumn.value = null; 
+                            sortOrder.value = 'desc';
+                        }
+                    } else {
+                        sortColumn.value = column;
+                        sortOrder.value = 'desc';
+                    }
                 };
 
                 const prevMonth = (e) => {
@@ -392,18 +453,6 @@
                     return parseFloat(status.replace(/[^0-9.-]/g, ''));
                 };
 
-                const getDataPriority = (item) => {
-                    const weekVal = getStatusVal(item.week_status);
-                    if (weekVal > -9999) return { priority: 1, maxVal: weekVal };
-                    const dayVal = getStatusVal(item.day_status);
-                    if (dayVal > -9999) return { priority: 2, maxVal: dayVal };
-                    const amVal = getStatusVal(item.am_status);
-                    const pmVal = getStatusVal(item.pm_status);
-                    const halfDayMax = Math.max(amVal, pmVal);
-                    if (halfDayMax > -9999) return { priority: 3, maxVal: halfDayMax };
-                    return { priority: 999, maxVal: -9999 };
-                };
-
                 const filteredDateData = computed(() => {
                     let baseData = [];
                     if (selectedDate.value === 'latest') {
@@ -425,10 +474,40 @@
                     validItems.sort((a, b) => {
                         const dateDiff = b.date.localeCompare(a.date);
                         if (dateDiff !== 0) return dateDiff;
-                        const aPriority = getDataPriority(a);
-                        const bPriority = getDataPriority(b);
-                        if (aPriority.priority !== bPriority.priority) return aPriority.priority - bPriority.priority;
-                        return bPriority.maxVal - aPriority.maxVal;
+                        
+                        if (sortColumn.value) {
+                            if (sortColumn.value === 'etf_name') {
+                                const cmp = a.etf_name.localeCompare(b.etf_name, 'zh-CN');
+                                return sortOrder.value === 'asc' ? cmp : -cmp;
+                            } else {
+                                const valA = getStatusVal(a[sortColumn.value]);
+                                const valB = getStatusVal(b[sortColumn.value]);
+                                
+                                if (valA === -9999 && valB !== -9999) return 1;
+                                if (valB === -9999 && valA !== -9999) return -1;
+                                
+                                return sortOrder.value === 'desc' ? valB - valA : valA - valB;
+                            }
+                        } 
+                        else {
+                            const aDay = getStatusVal(a.day_status);
+                            const bDay = getStatusVal(b.day_status);
+                            const aHalfMax = Math.max(getStatusVal(a.am_status), getStatusVal(a.pm_status));
+                            const bHalfMax = Math.max(getStatusVal(b.am_status), getStatusVal(b.pm_status));
+                            
+                            const aHasDay = aDay > -9999;
+                            const bHasDay = bDay > -9999;
+                            
+                            if (aHasDay && bHasDay) {
+                                return bDay - aDay;
+                            } else if (aHasDay && !bHasDay) {
+                                return -1;
+                            } else if (!aHasDay && bHasDay) {
+                                return 1;
+                            } else {
+                                return bHalfMax - aHalfMax;
+                            }
+                        }
                     });
                     
                     if (selectedDate.value === 'latest' && !searchQuery.value) return validItems.slice(0, 200);
@@ -545,7 +624,8 @@
                     isPrevMonthDisabled, isNextMonthDisabled, toggleDropdown, closeDropdown,
                     selectLatest, selectDate, prevMonth, nextMonth,
                     getEtfNameStyle,
-                    searchQuery, showSearch, searchInput, toggleSearch, openSearch
+                    searchQuery, showSearch, searchInput, toggleSearch, openSearch,
+                    sortColumn, sortOrder, handleSort
                 };
             }
         }).mount('#app');
