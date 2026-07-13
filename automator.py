@@ -6,18 +6,18 @@ import pytz
 from playwright.async_api import async_playwright
 import edge_tts
 import requests
-import json
 
 # 1. 基础配置
 TARGET_URL = "https://gpkx.github.io/"
-TV_CHART_URL = "https://cn.tradingview.com/chart/" # 默认主图表URL
+# 👇 ！！！请把这里换成你带指标的专属图表链接（必须带有后缀ID）！！！
+TV_CHART_URL = "https://cn.tradingview.com/chart/Umn0unG5/" 
 TZ = pytz.timezone('Asia/Shanghai')
 NOW = datetime.now(TZ)
 IS_MIDDAY = NOW.hour < 13
 TIME_LABEL = "午间盘面" if IS_MIDDAY else "今日收盘"
 FILE_SUFFIX = NOW.strftime("%Y%m%d_%H%M")
 
-# 分段文案模板
+# 2. 合规文案模板（已精简为 4 只 ETF）
 INTRO_TEXT = f"各位观众朋友大家好，欢迎关注最新的行业ETF客观数据跟踪。截至{TIME_LABEL}，我们来梳理一下市场核心板块的最新动态。"
 OUTRO_TEXT = "以上数据均源自公开市场客观统计，仅供全景量化复盘参考，不构成任何投资建议或操作引导。理财有风险，入市需谨慎。"
 
@@ -41,37 +41,15 @@ def get_audio_duration(file_path):
     result = subprocess.run(cmd, stdout=subprocess.PIPE, text=True)
     return float(result.stdout.strip())
 
-# 生成独立视频片段工具
-def create_video_segment(image_paths, audio_path, output_path):
-    duration = get_audio_duration(audio_path)
-    img_count = len(image_paths)
-    time_per_img = duration / img_count
-    
-    # 动态生成 FFmpeg 的 input.txt
-    txt_path = f"temp_{output_path}.txt"
-    with open(txt_path, "w") as f:
-        for img in image_paths:
-            f.write(f"file '{img}'\nduration {time_per_img:.2f}\n")
-        f.write(f"file '{image_paths[-1]}'\n") # 结尾收尾帧
-    
-    # 将图片列表与对应音频合并为一个独立 MP4
-    cmd = [
-        "ffmpeg", "-f", "concat", "-safe", "0", "-i", txt_path, 
-        "-i", audio_path, "-c:v", "libx264", "-pix_fmt", "yuv420p", 
-        "-c:a", "aac", "-shortest", "-y", output_path
-    ]
-    subprocess.run(cmd, check=True)
-    os.remove(txt_path)
-
 async def main():
-    print(f"🚀 开始执行进阶同步工作流... {NOW}")
+    print(f"🚀 开始执行终极同步工作流... {NOW}")
     
     # --- A. 数据抓取与图表截图 ---
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(viewport={'width': 1280, 'height': 720})
         
-        # 注入 TradingView Cookie，实现自动登录
+        # 注入 TradingView Cookie
         tv_session = os.getenv('TV_SESSION_ID')
         if tv_session:
             await context.add_cookies([{
@@ -86,37 +64,48 @@ async def main():
         await page.wait_for_timeout(2000)
         await page.screenshot(path="ss_main.png")
         
+        # 兜底测试数据（改为 4 只）
         etf_list = [
             {"name": "酒ETF", "code": "512690", "change": "+4.5%"},
             {"name": "医疗ETF", "code": "512170", "change": "+3.9%"},
             {"name": "消费ETF", "code": "159928", "change": "+3.4%"},
-            {"name": "银行ETF", "code": "512800", "change": "+2.2%"},
-            {"name": "上证50", "code": "510050", "change": "-2.2%"}
+            {"name": "银行ETF", "code": "512800", "change": "+2.2%"}
         ]
 
+        # 💡 如果你需要真实抓取前4个数据，可以放开这里的注释替换上面的死数据
+        # try:
+        #     rows = await page.locator("table tr").all()
+        #     etf_list = []
+        #     for row in rows[1:5]: # 只取前4个
+        #         text = await row.inner_text()
+        #         lines = text.split('\n')
+        #         name = lines[0].split('(')[0].strip() if len(lines) > 0 else "核心ETF"
+        #         code = "".join(filter(str.isdigit, lines[0])) if len(lines) > 0 else "510050"
+        #         change = lines[-2] if IS_MIDDAY else lines[-1] 
+        #         etf_list.append({"name": name, "code": code, "change": change})
+        # except Exception as e:
+        #     print(f"解析失败: {e}")
+
         # 2. 抓取专属带指标图表
-        print("🌐 登录并加载私有图表...")
+        print("🌐 登录并加载带有自定义指标的私有画板...")
         await page.goto(TV_CHART_URL, wait_until="networkidle", timeout=60000)
-        await page.wait_for_timeout(5000) # 等待各种指标彻底加载完毕
+        await page.wait_for_timeout(8000) # 给予充分时间加载 Pine Script 指标
 
         for i, etf in enumerate(etf_list):
             symbol = get_tv_symbol(etf['code'])
-            print(f"📸 正在抓取: {symbol} (3小时与日线)")
+            print(f"📸 正在抓取第 {i+1}/4 只 ETF: {symbol} (3小时与日线)")
             
-            # 键盘自动化：输入代码并回车，调用相应的股票
             await page.keyboard.type(symbol)
             await page.wait_for_timeout(500)
             await page.keyboard.press("Enter")
-            await page.wait_for_timeout(3000) # 等待K线刷新
+            await page.wait_for_timeout(3000)
             
-            # 键盘自动化：输入 180 切换到 3小时线
             await page.keyboard.type("180")
             await page.wait_for_timeout(500)
             await page.keyboard.press("Enter")
             await page.wait_for_timeout(2000)
             await page.screenshot(path=f"ss_etf_{i}_3h.png")
             
-            # 键盘自动化：输入 1D 切换到 日线
             await page.keyboard.type("1D")
             await page.wait_for_timeout(500)
             await page.keyboard.press("Enter")
@@ -125,49 +114,68 @@ async def main():
 
         await browser.close()
 
-    # --- B. 语音分段生成与绝对同步融合 ---
-    print("🎵 开始分段生成 TTS 语音并同步画面...")
-    video_segments = []
+    # --- B. 语音与画面底层时间轴精准对齐 ---
+    print("🎵 开始生成 TTS 语音并构建底层时间轴...")
     
-    # 1. 制作开头
-    intro_tts = edge_tts.Communicate(INTRO_TEXT, "zh-CN-YunxiNeural")
-    await intro_tts.save("audio_intro.mp3")
-    create_video_segment(["ss_main.png"], "audio_intro.mp3", "seg_intro.mp4")
-    video_segments.append("seg_intro.mp4")
+    image_timeline = [] # 记录画面及对应时长
+    audio_files = []    # 记录音频文件列表
+    
+    # 1. 开场对齐
+    await edge_tts.Communicate(INTRO_TEXT, "zh-CN-YunxiNeural").save("audio_intro.mp3")
+    dur_intro = get_audio_duration("audio_intro.mp3")
+    image_timeline.append(f"file 'ss_main.png'\nduration {dur_intro:.3f}\n")
+    audio_files.append("audio_intro.mp3")
     full_text = INTRO_TEXT + "\n"
 
-    # 2. 制作中间每个 ETF 的片段
-    transition_words = ["首先，", "紧接着，", "再来关注", "随后是", "最后，"]
+    # 2. 4只ETF中间对齐
+    transition_words = ["首先，", "紧接着，", "再来关注", "最后，"]
     for i, etf in enumerate(etf_list):
         trend, readable_val = format_trend(etf['change'])
         etf_text = f"{transition_words[i]}{etf['name']}今日表现为{trend}，变动幅度和比例为{readable_val}。"
         full_text += etf_text + "\n"
         
         etf_audio = f"audio_etf_{i}.mp3"
-        etf_tts = edge_tts.Communicate(etf_text, "zh-CN-YunxiNeural")
-        await etf_tts.save(etf_audio)
+        await edge_tts.Communicate(etf_text, "zh-CN-YunxiNeural").save(etf_audio)
         
-        # 重点：这一句语音内，均分展示 3小时线和日线
-        create_video_segment([f"ss_etf_{i}_3h.png", f"ss_etf_{i}_1d.png"], etf_audio, f"seg_etf_{i}.mp4")
-        video_segments.append(f"seg_etf_{i}.mp4")
+        dur_etf = get_audio_duration(etf_audio)
+        half_dur = dur_etf / 2.0 # 3小时线和日线各占一半语音时间
+        
+        image_timeline.append(f"file 'ss_etf_{i}_3h.png'\nduration {half_dur:.3f}\n")
+        image_timeline.append(f"file 'ss_etf_{i}_1d.png'\nduration {half_dur:.3f}\n")
+        audio_files.append(etf_audio)
 
-    # 3. 制作结尾
-    outro_tts = edge_tts.Communicate(OUTRO_TEXT, "zh-CN-YunxiNeural")
-    await outro_tts.save("audio_outro.mp3")
-    create_video_segment(["ss_main.png"], "audio_outro.mp3", "seg_outro.mp4")
-    video_segments.append("seg_outro.mp4")
+    # 3. 结尾对齐
+    await edge_tts.Communicate(OUTRO_TEXT, "zh-CN-YunxiNeural").save("audio_outro.mp3")
+    dur_outro = get_audio_duration("audio_outro.mp3")
+    image_timeline.append(f"file 'ss_main.png'\nduration {dur_outro:.3f}\n")
+    # FFmpeg concat 要求最后一行重复最后一张图且不带时长
+    image_timeline.append(f"file 'ss_main.png'\n")
+    audio_files.append("audio_outro.mp3")
     full_text += OUTRO_TEXT
 
-    # --- C. 无缝拼接所有分段并发送 ---
-    print("🎬 开始无缝拼接最终视频...")
-    with open("concat_list.txt", "w") as f:
-        for seg in video_segments:
-            f.write(f"file '{seg}'\n")
-            
+    # 生成底层流配置文本
+    with open("video_input.txt", "w") as f:
+        f.writelines(image_timeline)
+    with open("audio_input.txt", "w") as f:
+        for aud in audio_files:
+            f.write(f"file '{aud}'\n")
+
+    # --- C. 一次性绝对同步渲染 ---
+    print("🎬 开始进行一次性绝对同步音画合成...")
     final_video = f"etf_report_sync_{FILE_SUFFIX}.mp4"
-    concat_cmd = ["ffmpeg", "-f", "concat", "-safe", "0", "-i", "concat_list.txt", "-c", "copy", "-y", final_video]
-    subprocess.run(concat_cmd, check=True)
     
+    # 黑科技：直接将音频和图片的流在一次命令中混合，彻底消灭拼接累加延迟，设置帧率为25
+    ffmpeg_cmd = [
+        "ffmpeg", "-y", 
+        "-f", "concat", "-safe", "0", "-i", "video_input.txt", 
+        "-f", "concat", "-safe", "0", "-i", "audio_input.txt", 
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "25",
+        "-c:a", "aac", "-b:a", "192k", 
+        final_video
+    ]
+    subprocess.run(ffmpeg_cmd, check=True)
+    
+    # --- D. 发送到 Telegram ---
     print("✈️ 开始推送到 Telegram...")
     bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
     chat_id = os.getenv('TELEGRAM_CHAT_ID')
@@ -177,7 +185,7 @@ async def main():
     with open(final_video, 'rb') as video_file:
         requests.post(tg_url, data={'chat_id': chat_id, 'caption': caption_text}, files={'video': video_file}, timeout=60)
         
-    print("🎉 高级同步版视频推送完毕！")
+    print("🎉 极致同步版视频（4只ETF+私有指标）推送完毕！")
 
 if __name__ == "__main__":
     asyncio.run(main())
