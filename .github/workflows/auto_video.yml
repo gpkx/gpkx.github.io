@@ -2,12 +2,15 @@ name: Automated ETF Video Workflow
 
 on:
   schedule:
+    # 每天北京时间 11:40 (UTC 03:40)
     - cron: '40 3 * * 1-5'
+    # 每天北京时间 16:00 (UTC 08:00)
     - cron: '0 8 * * 1-5'
-  workflow_dispatch:
+  workflow_dispatch: # 允许手动点击运行
 
 jobs:
   build-and-run:
+    # 固定使用 22.04，确保底层音频库兼容
     runs-on: ubuntu-22.04
 
     steps:
@@ -18,29 +21,36 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
-        cache: 'pip' # 缓存 pip 依赖
+        cache: 'pip' # 缓存 Python 依赖包
 
-    # 💡 新增核心：缓存 Playwright 浏览器内核，极大提升后续运行速度
     - name: Cache Playwright Browsers
       uses: actions/cache@v4
       with:
         path: ~/.cache/ms-playwright
         key: ${{ runner.os }}-playwright-${{ hashFiles('requirements.txt') }}
 
-    - name: Install System Dependencies (FFmpeg)
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y ffmpeg
+    - name: Setup FFmpeg
+      # 抛弃抽风的 apt-get，使用官方直连极速插件
+      uses: FedericoCarboni/setup-ffmpeg@v3
 
     - name: Install Python Dependencies
       run: |
         pip install -r requirements.txt
 
-    - name: Install Playwright Browsers
+    - name: Fix Network and Install Browsers
       run: |
+        # 1. 强行把今天抽风的 azure 节点替换为全球主节点，根治卡死问题
+        sudo sed -i 's/azure.archive.ubuntu.com/archive.ubuntu.com/g' /etc/apt/sources.list
+        sudo apt-get update
+        
+        # 2. 提前光速安装中文字体（确保封面图和 TradingView 的中文完美显示）
+        sudo apt-get install -y fonts-wqy-zenhei fonts-wqy-microhei
+        
+        # 3. 安装浏览器内核及其剩余依赖
         playwright install chromium --with-deps
 
     - name: Run Automation Script
+      # 映射所有必须要用到的机密环境变量
       env:
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
