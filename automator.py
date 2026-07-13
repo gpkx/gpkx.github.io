@@ -10,7 +10,7 @@ import requests
 # 1. 基础配置
 TARGET_URL = "https://gpkx.github.io/"
 # 👇 ！！！请把这里换成你带指标的专属图表链接（必须带有后缀ID）！！！
-TV_CHART_URL = "https://cn.tradingview.com/chart/Umn0unG5/" 
+TV_CHART_URL = "https://cn.tradingview.com/chart/fxUqvHrk/" 
 TZ = pytz.timezone('Asia/Shanghai')
 NOW = datetime.now(TZ)
 IS_MIDDAY = NOW.hour < 13
