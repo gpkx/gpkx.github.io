@@ -246,19 +246,65 @@ async def main():
     
     subprocess.run(ffmpeg_cmd, check=True)
     
-    # --- D. 推送 Telegram ---
-    print("✈️ 推送到 Telegram...")
+    # --- D. 推送 Telegram (视频 + 图文素材包全平台分发) ---
+    print("✈️ 开始打包并推送到 Telegram...")
     bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
     chat_id = os.getenv('TELEGRAM_CHAT_ID')
-    tg_url = f"https://api.telegram.org/bot{bot_token}/sendVideo"
     
-    # 配合高转化率标题生成完整的发送文案
-    caption_text = f"⭐⭐ {SELECTED_HOOK} ⭐⭐\n\n{full_text}"
-    
+    # 【第一发：发送生成的短视频】
+    print("1️⃣ 正在发送短视频...")
+    video_url = f"https://api.telegram.org/bot{bot_token}/sendVideo"
+    video_caption = f"🎬 【视频素材】\n⭐⭐ {SELECTED_HOOK} ⭐⭐\n\n{full_text}"
     with open(final_video, 'rb') as video_file:
-        requests.post(tg_url, data={'chat_id': chat_id, 'caption': caption_text}, files={'video': video_file}, timeout=60)
+        requests.post(video_url, data={'chat_id': chat_id, 'caption': video_caption}, files={'video': video_file}, timeout=120)
+
+    # 【第二发：发送小红书/公众号专属排版文案】
+    print("2️⃣ 正在发送图文排版文案...")
+    # 对原有的口语化文案进行图文网感改造
+    xhs_body = full_text.replace("各位观众朋友大家好，欢迎关注", "🔥 欢迎关注")\
+                        .replace("首先，", "🟢 ")\
+                        .replace("紧接着，", "🟢 ")\
+                        .replace("再来关注", "🟢 ")\
+                        .replace("随后是", "🟢 ")\
+                        .replace("最后，", "🟢 ")\
+                        .replace("以上数据均源自", "💡 以上数据均源自")
+    
+    xhs_text = (
+        f"📝 【图文排版素材（直接长按复制）】\n\n"
+        f"【标题建议】{SELECTED_HOOK}\n\n"
+        f"【正文内容】\n{xhs_body}\n\n"
+        f"#ETF #股市复盘 #量化交易 #行情分析 #A股 #投资记录"
+    )
+    msg_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    requests.post(msg_url, data={'chat_id': chat_id, 'text': xhs_text})
+
+    # 【第三发：将所有高清截图作为“相册(Album)”发送】
+    print("3️⃣ 正在发送高清配图相册...")
+    album_url = f"https://api.telegram.org/bot{bot_token}/sendMediaGroup"
+    
+    # 收集所有的图片路径 (封面 + 总数据 + 4只ETF的3H和1D图)
+    img_list = ["cover_image.png", "ss_main.png"]
+    for i in range(len(etf_list)):
+        img_list.append(f"ss_etf_{i}_3h.png")
+        img_list.append(f"ss_etf_{i}_1d.png")
         
-    print("🎉 运营级成品出炉！快去手机上查看吧！")
+    # Telegram 限制每个相册最多 10 张图，这里做动态切分发送，确保极其稳定
+    for i in range(0, len(img_list), 10):
+        chunk = img_list[i:i+10]
+        media_group = []
+        files = {}
+        for idx, img in enumerate(chunk):
+            if os.path.exists(img):
+                files[f"file{idx}"] = open(img, "rb")
+                media_group.append({"type": "photo", "media": f"attach://file{idx}"})
+        
+        requests.post(album_url, data={'chat_id': chat_id, 'media': json.dumps(media_group)}, files=files, timeout=60)
+        
+        # 发送完毕后关闭文件占用
+        for f in files.values():
+            f.close()
+            
+    print("🎉 全平台矩阵素材（视频+排版文案+无损套图）已全部推送到你的手机！")
 
 if __name__ == "__main__":
     asyncio.run(main())
