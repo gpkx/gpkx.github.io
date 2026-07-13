@@ -85,13 +85,13 @@ async def main():
             # 【核心修复2】放弃键盘输入，改用 URL 强制传递标的和周期，彻底解决不切换画面的 BUG
             # 抓取 3小时线 (interval=180)
             url_3h = f"{base_chart_url}/?symbol={symbol}&interval=180"
-            await page.goto(url_3h, wait_until="networkidle", timeout=60000)
+            await page.goto(url_3h, wait_until="domcontentloaded", timeout=60000)
             await page.wait_for_timeout(6000) # 给予 6 秒充足时间让 Pine Script 指标计算渲染
             await page.screenshot(path=f"ss_etf_{i}_3h.png")
             
             # 抓取 日线 (interval=1D)
             url_1d = f"{base_chart_url}/?symbol={symbol}&interval=1D"
-            await page.goto(url_1d, wait_until="networkidle", timeout=60000)
+            await page.goto(url_1d, wait_until="domcontentloaded", timeout=60000)
             await page.wait_for_timeout(6000)
             await page.screenshot(path=f"ss_etf_{i}_1d.png")
 
