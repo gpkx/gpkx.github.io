@@ -3,6 +3,7 @@ import json
 import asyncio
 import subprocess
 import random
+import re
 from datetime import datetime
 import pytz
 from playwright.async_api import async_playwright
