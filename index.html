@@ -141,17 +141,49 @@
 
                 <!-- 监控看板表格区 -->
                 <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden relative">
-                    <!-- 调整：恢复滚动条，并确保 X 轴（左右滑动）在移动端生效 -->
                     <div class="overflow-auto max-h-[75vh] w-full custom-scrollbar">
                         <table class="w-full text-center border-collapse whitespace-nowrap min-w-max">
                             <thead class="sticky top-0 bg-slate-100 shadow-sm z-20">
-                                <tr class="text-sm font-bold text-slate-700">
-                                    <!-- 调整：此处改为 text-center 使“ETF名称”居中显示 -->
+                                <tr class="text-sm font-bold text-slate-700 select-none">
                                     <th class="p-2 md:p-3 text-center sticky left-0 bg-slate-100 z-30 shadow-[1px_0_0_0_#e2e8f0] etf-name-column">ETF名称</th>
-                                    <th class="p-2 md:p-3">上午</th>
-                                    <th class="p-2 md:p-3">下午</th>
-                                    <th class="p-2 md:p-3">全天</th>
-                                    <th class="p-2 md:p-3">本周</th>
+                                    
+                                    <!-- 交互式表头：添加了点击排序功能和上下箭头指示器 -->
+                                    <th class="p-2 md:p-3 cursor-pointer hover:bg-slate-200 transition-colors" @click="handleSort('am_status')">
+                                        <div class="flex items-center justify-center gap-1">
+                                            上午
+                                            <div class="flex flex-col text-[9px] leading-[8px] text-gray-300">
+                                                <i class="fa-solid fa-caret-up" :class="{'text-blue-600': sortColumn === 'am_status' && sortOrder === 'asc'}"></i>
+                                                <i class="fa-solid fa-caret-down" :class="{'text-blue-600': sortColumn === 'am_status' && sortOrder === 'desc'}"></i>
+                                            </div>
+                                        </div>
+                                    </th>
+                                    <th class="p-2 md:p-3 cursor-pointer hover:bg-slate-200 transition-colors" @click="handleSort('pm_status')">
+                                        <div class="flex items-center justify-center gap-1">
+                                            下午
+                                            <div class="flex flex-col text-[9px] leading-[8px] text-gray-300">
+                                                <i class="fa-solid fa-caret-up" :class="{'text-blue-600': sortColumn === 'pm_status' && sortOrder === 'asc'}"></i>
+                                                <i class="fa-solid fa-caret-down" :class="{'text-blue-600': sortColumn === 'pm_status' && sortOrder === 'desc'}"></i>
+                                            </div>
+                                        </div>
+                                    </th>
+                                    <th class="p-2 md:p-3 cursor-pointer hover:bg-slate-200 transition-colors" @click="handleSort('day_status')">
+                                        <div class="flex items-center justify-center gap-1">
+                                            全天
+                                            <div class="flex flex-col text-[9px] leading-[8px] text-gray-300">
+                                                <i class="fa-solid fa-caret-up" :class="{'text-blue-600': sortColumn === 'day_status' && sortOrder === 'asc'}"></i>
+                                                <i class="fa-solid fa-caret-down" :class="{'text-blue-600': sortColumn === 'day_status' && sortOrder === 'desc'}"></i>
+                                            </div>
+                                        </div>
+                                    </th>
+                                    <th class="p-2 md:p-3 cursor-pointer hover:bg-slate-200 transition-colors" @click="handleSort('week_status')">
+                                        <div class="flex items-center justify-center gap-1">
+                                            本周
+                                            <div class="flex flex-col text-[9px] leading-[8px] text-gray-300">
+                                                <i class="fa-solid fa-caret-up" :class="{'text-blue-600': sortColumn === 'week_status' && sortOrder === 'asc'}"></i>
+                                                <i class="fa-solid fa-caret-down" :class="{'text-blue-600': sortColumn === 'week_status' && sortOrder === 'desc'}"></i>
+                                            </div>
+                                        </div>
+                                    </th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-gray-100 text-[15px]">
@@ -249,6 +281,10 @@
                 const currentYear = ref(new Date().getFullYear());
                 const currentMonth = ref(new Date().getMonth()); 
 
+                // 排序相关状态
+                const sortColumn = ref(null); // 可以是 'am_status', 'pm_status', 'day_status', 'week_status' 或 null
+                const sortOrder = ref('desc'); // 'desc' 或 'asc'
+
                 const uniqueDatesSet = computed(() => {
                     const validDates = allData.value
                         .filter(item => (item.am_status || item.pm_status || item.day_status || item.week_status))
@@ -298,6 +334,21 @@
                 const selectDate = (dateStr) => {
                     selectedDate.value = dateStr;
                     closeDropdown();
+                };
+
+                // 表头点击排序逻辑 (降序 -> 升序 -> 恢复默认)
+                const handleSort = (column) => {
+                    if (sortColumn.value === column) {
+                        if (sortOrder.value === 'desc') {
+                            sortOrder.value = 'asc';
+                        } else {
+                            sortColumn.value = null; // 恢复默认排序
+                            sortOrder.value = 'desc';
+                        }
+                    } else {
+                        sortColumn.value = column;
+                        sortOrder.value = 'desc';
+                    }
                 };
 
                 const prevMonth = (e) => {
@@ -387,21 +438,10 @@
                     return up + down;
                 };
 
+                // 获取解析后的数字，如果没有数据返回 -9999
                 const getStatusVal = (status) => {
                     if (!status || status === '-' || status === '--') return -9999;
                     return parseFloat(status.replace(/[^0-9.-]/g, ''));
-                };
-
-                const getDataPriority = (item) => {
-                    const weekVal = getStatusVal(item.week_status);
-                    if (weekVal > -9999) return { priority: 1, maxVal: weekVal };
-                    const dayVal = getStatusVal(item.day_status);
-                    if (dayVal > -9999) return { priority: 2, maxVal: dayVal };
-                    const amVal = getStatusVal(item.am_status);
-                    const pmVal = getStatusVal(item.pm_status);
-                    const halfDayMax = Math.max(amVal, pmVal);
-                    if (halfDayMax > -9999) return { priority: 3, maxVal: halfDayMax };
-                    return { priority: 999, maxVal: -9999 };
                 };
 
                 const filteredDateData = computed(() => {
@@ -422,13 +462,48 @@
                         );
                     }
 
+                    // 排序主逻辑
                     validItems.sort((a, b) => {
+                        // 1. 最优先：确保跨天数据时不乱序（始终保持按日期从新到旧分组）
                         const dateDiff = b.date.localeCompare(a.date);
                         if (dateDiff !== 0) return dateDiff;
-                        const aPriority = getDataPriority(a);
-                        const bPriority = getDataPriority(b);
-                        if (aPriority.priority !== bPriority.priority) return aPriority.priority - bPriority.priority;
-                        return bPriority.maxVal - aPriority.maxVal;
+                        
+                        // 2. 如果开启了【点击表头单独排序】
+                        if (sortColumn.value) {
+                            const valA = getStatusVal(a[sortColumn.value]);
+                            const valB = getStatusVal(b[sortColumn.value]);
+                            
+                            // 处理空数据(-9999)始终垫底
+                            if (valA === -9999 && valB !== -9999) return 1;
+                            if (valB === -9999 && valA !== -9999) return -1;
+                            
+                            return sortOrder.value === 'desc' ? valB - valA : valA - valB;
+                        } 
+                        // 3. 【默认排序规则】
+                        else {
+                            const aDay = getStatusVal(a.day_status);
+                            const bDay = getStatusVal(b.day_status);
+                            const aHalfMax = Math.max(getStatusVal(a.am_status), getStatusVal(a.pm_status));
+                            const bHalfMax = Math.max(getStatusVal(b.am_status), getStatusVal(b.pm_status));
+                            
+                            const aHasDay = aDay > -9999;
+                            const bHasDay = bDay > -9999;
+                            
+                            // 都存在日线数据，按日线跌涨幅由大到小排
+                            if (aHasDay && bHasDay) {
+                                return bDay - aDay;
+                            } 
+                            // 仅其中一方有日线数据，有数据的排在前面
+                            else if (aHasDay && !bHasDay) {
+                                return -1;
+                            } else if (!aHasDay && bHasDay) {
+                                return 1;
+                            } 
+                            // 都不存在日线数据（比如交易日未结束），则按上午和下午最大的跌涨幅由大到小排
+                            else {
+                                return bHalfMax - aHalfMax;
+                            }
+                        }
                     });
                     
                     if (selectedDate.value === 'latest' && !searchQuery.value) return validItems.slice(0, 200);
@@ -545,7 +620,8 @@
                     isPrevMonthDisabled, isNextMonthDisabled, toggleDropdown, closeDropdown,
                     selectLatest, selectDate, prevMonth, nextMonth,
                     getEtfNameStyle,
-                    searchQuery, showSearch, searchInput, toggleSearch, openSearch
+                    searchQuery, showSearch, searchInput, toggleSearch, openSearch,
+                    sortColumn, sortOrder, handleSort // 暴露给模板
                 };
             }
         }).mount('#app');
