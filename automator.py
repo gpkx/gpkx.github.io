@@ -223,22 +223,69 @@ async def main():
     with open("video_input.txt", "w") as f: f.writelines(image_timeline)
     with open("audio_input.txt", "w") as f: f.writelines([f"file '{a}'\n" for a in audio_files])
 
-    # --- C. FFmpeg 运镜渲染引擎 (电影级：极速推近 + 垂直扫视) ---
-    print("🎬 正在使用高级滤镜渲染 极速推近 + 垂直扫视 效果...")
-    # 💡 彻底修复整数计算 Bug，强制浮点数运算！轨迹精密解析：
-    # z='min(1.0+(in/30.0)*2.5, 3.5)'：在 30 帧（1.2秒）内，平滑且极速地放大到 3.5 倍。
-    # x='0'：死死贴住屏幕最左侧（只看第一列 ETF 名称）。
-    # y='if(lte(in,30), 5.66*in, 170.0+(in-30.0)*3.0)'：
-    #    -> 阶段1 (前1.2秒)：Y 轴平滑下移至 170 像素（精确跨过顶部表头，第一行直击“科创芯片”）。
-    #    -> 阶段2 (后3.8秒)：镜头锁定 3.5 倍放大状态，以每帧 3.0 像素的速度匀速向下扫视（像演职员表一样扫过前5只ETF）。
+    # --- C. Python 物理引擎运镜 (绝对生效：电影级极速推近 + 垂直摇摄) ---
+    print("🎬 正在使用 Python 物理引擎渲染运镜 (计算每一帧轨迹)...")
+    from PIL import Image
+    import shutil
+
     zoom_fps = 25
     zoom_frames = int(remain_zoom_time * zoom_fps)
+    frames_dir = "temp_zoom_frames"
+    
+    # 清理旧的缓存帧
+    if os.path.exists(frames_dir): 
+        shutil.rmtree(frames_dir)
+    os.makedirs(frames_dir)
+
+    # 加载原图
+    img = Image.open("ss_main.png")
+    w, h = img.size  # 手机屏幕 720x1280
+
+    # 设定特写画框的尺寸 (放大 3.3 倍，正好切除右侧所有数据，只留名字)
+    target_w = int(w / 3.3)
+    target_h = int(h / 3.3)
+
+    for i in range(zoom_frames):
+        if i <= 30:
+            # 阶段1 (前1.2秒): 极速向左上角推进
+            progress = i / 30.0
+            
+            # 💡 灵魂代码：三次缓动曲线 (Cubic Ease-out)
+            # 让镜头的推近像真实摄像机一样，起步极快，到位时平滑减速刹车
+            ease_progress = 1 - (1 - progress) ** 3
+            
+            current_w = int(w - (w - target_w) * ease_progress)
+            current_h = int(h - (h - target_h) * ease_progress)
+            current_x = 0
+            # Y轴向下偏移，完美避开顶部表头
+            current_y = int(170 * ease_progress) 
+        else:
+            # 阶段2 (后3.8秒): 保持巨大特写，镜头匀速向下扫视
+            current_w = target_w
+            current_h = target_h
+            current_x = 0
+            pan_progress = (i - 30) / (zoom_frames - 30)
+            
+            # 向下匀速扫过 220 个像素 (大约正好扫过前 4-5 只 ETF)
+            current_y = int(170 + (220 * pan_progress))
+        
+        # 精确裁剪当前帧，并使用高画质算法 (LANCZOS) 重新拉伸到 720x1280
+        box = (current_x, current_y, current_x + current_w, current_y + current_h)
+        frame = img.crop(box).resize((w, h), Image.Resampling.LANCZOS)
+        
+        # 保存这一帧 (格式化为 frame_0000.jpg, frame_0001.jpg)
+        frame.save(f"{frames_dir}/frame_{i:04d}.jpg", quality=90)
+
+    print("🎬 序列帧计算完毕，正在合成为丝滑视频...")
+    # 让 FFmpeg 把这 100 多张静态图片连起来变成 25 帧的视频 (这种最基础的拼接绝对不会出Bug)
     zoom_cmd = [
-        "ffmpeg", "-y", "-loop", "1", "-framerate", str(zoom_fps), "-i", "ss_main.png", 
-        "-vf", f"zoompan=z='min(1.0+(in/30.0)*2.5, 3.5)':x='0':y='if(lte(in,30), 5.66*in, 170.0+(in-30.0)*3.0)':d={zoom_frames}:s=720x1280", 
-        "-c:v", "libx264", "-r", str(zoom_fps), "-t", f"{remain_zoom_time:.3f}", "-pix_fmt", "yuv420p", "ss_main_zoomed.mp4"
+        "ffmpeg", "-y", "-framerate", str(zoom_fps), "-i", f"{frames_dir}/frame_%04d.jpg",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(zoom_fps), "ss_main_zoomed.mp4"
     ]
     subprocess.run(zoom_cmd, check=True)
+    
+    # 顺手清理一下临时生成的图片文件夹释放空间
+    shutil.rmtree(frames_dir)
 
     # --- D. 视频最终多轨合成 ---
     print("🎬 正在拼装最终带有动态前奏的分镜视频...")
