@@ -4,7 +4,6 @@ import asyncio
 import subprocess
 import random
 import re
-import base64
 from datetime import datetime
 import pytz
 from playwright.async_api import async_playwright
@@ -13,7 +12,6 @@ import requests
 
 # 1. 基础配置
 TARGET_URL = "https://gpkx.github.io/"
-# 👇 替换为你最新的专属图表链接
 TV_CHART_URL = "https://cn.tradingview.com/chart/fxUqvHrk/" 
 TZ = pytz.timezone('Asia/Shanghai')
 NOW = datetime.now(TZ)
@@ -21,8 +19,8 @@ IS_MIDDAY = NOW.hour < 13
 TIME_LABEL = "午盘" if IS_MIDDAY else "收盘"
 FILE_SUFFIX = NOW.strftime("%Y%m%d_%H%M")
 
-# 2. 极简口播话术（加入“监控40多只”的背书话术）
-INTRO_TEXT = f"欢迎关注ETF量化跟踪。我们全天候监控40多只A股核心ETF，每次为您精选波动最大的4只进行客观复盘。截至{TIME_LABEL}，来看最新读数。"
+# 2. 极简口播话术（加入监控背书）
+INTRO_TEXT = f"我们全天候监控40多只核心ETF，每天精选波动最大的4只进行复盘，欢迎关注。截至今日收盘。"
 OUTRO_TEXT = "本内容不构成投资建议。"
 
 def get_tv_symbol(code):
@@ -32,9 +30,10 @@ def get_tv_symbol(code):
 def format_quant_voice(val_str):
     try:
         val = float(val_str.replace('%', '').replace('+', ''))
-        if val > 0: return f"正的百分之{abs(val)}"
-        elif val < 0: return f"负的百分之{abs(val)}"
-        return "零轴附近"
+        # 加上空格 A T R 是为了防止语音引擎错误连读，% 引擎会自动读成“百分之”
+        if val > 0: return f"A T R涨幅为{abs(val)}%"
+        elif val < 0: return f"A T R跌幅为{abs(val)}%"
+        return "A T R在零轴附近"
     except:
         return "无有效读数"
 
@@ -52,10 +51,11 @@ async def safe_generate_tts(text, filename, retries=3):
             else: raise Exception(f"TTS 失败: {e}")
 
 async def main():
-    print(f"🚀 开始执行【高斯模糊+暴力裁剪】工作流... {NOW}")
+    print(f"🚀 开始执行【纯净分镜+中心居中裁剪】工作流... {NOW}")
     
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
+        # 💻 严格 9:16 竖屏手机环境
         context = await browser.new_context(
             viewport={'width': 720, 'height': 1280}, is_mobile=True,
             user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 Safari/604.1"
@@ -70,10 +70,13 @@ async def main():
             
         page = await context.new_page()
 
-        # --- A. 抓取真实数据并生成【高斯模糊横屏排版】 ---
-        print("🔍 正在抓取数据并制作宽屏适配...")
+        # --- A. 抓取真实数据并生成手机原生截图 ---
+        print("🔍 正在截取监控总览页面...")
         await page.goto(TARGET_URL, wait_until="networkidle")
         await page.wait_for_timeout(5000) 
+        
+        # 💡 摒弃花里胡哨的模糊裁切，直接保存一张最真实的 720x1280 手机界面截图
+        await page.screenshot(path="ss_main.png")
         
         etf_list = []
         try:
@@ -91,59 +94,8 @@ async def main():
                         change = pcts[1] if not IS_MIDDAY and len(pcts) >= 2 else pcts[0]
                         if not any(e['code'] == code for e in etf_list):
                             etf_list.append({"name": name, "code": code, "change": change})
-            
-            if etf_list:
-                # 隐藏网页上其余无用的行
-                codes_to_keep = [e['code'] for e in etf_list]
-                await page.evaluate(f"""
-                    const codes = {codes_to_keep};
-                    document.querySelectorAll('tr, .el-table__row, .row, li').forEach(row => {{
-                        const match = row.innerText.match(/\\b(5\\d{{5}}|1\\d{{5}})\\b/);
-                        if(match && !codes.includes(match[1])) row.style.display = 'none';
-                    }});
-                """)
-                await page.wait_for_timeout(1000)
-                
-                # 计算保留下来的4只ETF的精确区域并进行局部裁剪
-                clip = await page.evaluate("""
-                    (() => {
-                        const rows = Array.from(document.querySelectorAll('tr, .el-table__row, .row, li')).filter(r => r.style.display !== 'none' && r.innerText.trim() !== '');
-                        if (rows.length > 0) {
-                            const parent = rows[0].closest('table') || rows[0].parentElement;
-                            const rect = parent.getBoundingClientRect();
-                            return { x: Math.max(0, rect.x), y: Math.max(0, rect.y), width: Math.min(window.innerWidth, rect.width), height: Math.min(window.innerHeight, rect.height) };
-                        }
-                        return null;
-                    })();
-                """)
-                if clip and clip['width'] > 0:
-                    await page.screenshot(path="table_crop.png", clip=clip)
-                else:
-                    await page.screenshot(path="table_crop.png")
-                
-                # 🪄 电影级画中画处理：原图放大高斯模糊铺底 + 原图居中
-                with open("table_crop.png", "rb") as f:
-                    b64_img = base64.b64encode(f.read()).decode('utf-8')
-                img_uri = f"data:image/png;base64,{b64_img}"
-                
-                blur_html = f"""
-                <!DOCTYPE html><html><head><meta charset="UTF-8"><style>
-                    body {{ margin: 0; padding: 0; width: 720px; height: 1280px; display: flex; flex-direction: column; justify-content: center; align-items: center; background-color: #121212; overflow: hidden; position: relative; }}
-                    .bg-blur {{ position: absolute; top: -10%; left: -10%; width: 120%; height: 120%; background-image: url('{img_uri}'); background-size: cover; background-position: center; filter: blur(35px); opacity: 0.4; z-index: 1; }}
-                    .content {{ z-index: 2; width: 95%; border-radius: 12px; box-shadow: 0 20px 50px rgba(0,0,0,0.9); }}
-                    .title {{ z-index: 2; color: #fbbf24; font-family: 'Microsoft YaHei', sans-serif; font-size: 42px; font-weight: bold; margin-bottom: 50px; text-shadow: 2px 2px 10px rgba(0,0,0,0.9); letter-spacing: 2px; }}
-                </style></head><body>
-                    <div class="bg-blur"></div>
-                    <div class="title">🎯 本期监测前 4 名</div>
-                    <img class="content" src="{img_uri}">
-                </body></html>
-                """
-                await page.set_content(blur_html)
-                await page.wait_for_timeout(1000)
-                await page.screenshot(path="ss_main.png")
-            else:
+            if not etf_list:
                 raise Exception("未找到数据")
-                
         except Exception as e:
             print(f"🛑 数据抓取失败，停止生成。({e})")
             await browser.close()
@@ -192,9 +144,9 @@ async def main():
         await page.wait_for_timeout(1000)
         await page.screenshot(path="disclaimer.png")
 
-        # --- 📸 3. TV图表 (120%放大 + 左上对齐暴力裁剪防毛边) ---
-        print("🌐 正在抓取完美比例 120% 纯净 K 线图...")
-        # 画面以中心为原点放大120%，四周边缘均匀溢出被裁剪，核心K线完美居中保留
+        # --- 📸 3. TV图表 (120%放大 + 绝对居中裁切边缘) ---
+        print("🌐 正在抓取完美比例 120% 中心对齐 K 线图...")
+        # 💡 transform-origin: center center 让图表以中心为基准放大 120%，四边均匀溢出并被安全裁切掉
         clean_css = """
             .layout__area--top, .layout__area--left, .layout__area--right, .layout__area--bottom, [data-name='widgetbar'], #widgetbar, .widgetbar-wrap { display: none !important; } 
             .layout__area--center { 
@@ -203,7 +155,6 @@ async def main():
                 transform: scale(1.2) !important; transform-origin: center center !important; 
             }
         """
-        
         base_chart_url = TV_CHART_URL.rstrip('/')
         target_interval = "180" if IS_MIDDAY else "1D"
         suffix = "3h" if IS_MIDDAY else "1d"
@@ -215,23 +166,31 @@ async def main():
             await page.evaluate("window.dispatchEvent(new Event('resize'));")
             await page.wait_for_timeout(5000)
             
-            # 由于底层元素被缩放了120%，而视口仍然是720x1280，这里的截图会自然地将溢出的20%杂边裁剪掉
             await page.screenshot(path=f"ss_etf_{i}_{suffix}.png")
 
         await browser.close()
 
-    # --- B. 语音与时间轴 ---
+    # --- B. 语音与高级时间轴 ---
+    print("🎵 正在合成带高级分镜的底层时间轴...")
     image_timeline = []
     audio_files = []
     
+    # 【片头分镜】
     await safe_generate_tts(INTRO_TEXT, "audio_intro.mp3")
     dur_intro = get_audio_duration("audio_intro.mp3")
-    image_timeline.append(f"file 'cover_image.png'\nduration {dur_intro:.3f}\n")
     audio_files.append("audio_intro.mp3")
+    
+    # 💡 核心修改：前 3 秒只显示帅气的文字封面，剩下的口播时间无缝切换到监控网页全景
+    cover_duration = 3.000
+    remain_intro_duration = max(0.1, dur_intro - cover_duration)
+    
+    image_timeline.append(f"file 'cover_image.png'\nduration {cover_duration:.3f}\n")
+    image_timeline.append(f"file 'ss_main.png'\nduration {remain_intro_duration:.3f}\n")
 
     full_text = f"🔥 【{TIME_LABEL}量化雷达播报】\n\n"
     transition_words = ["首先，", "其次，", "再看", "最后，"]
     
+    # 【ETF 内容分镜】
     for i, etf in enumerate(etf_list):
         readable_val = format_quant_voice(etf['change'])
         etf_text = f"{transition_words[i]}{etf['name']}，ATR读数{readable_val}。"
@@ -246,13 +205,13 @@ async def main():
         image_timeline.append(f"file '{img_name}'\nduration {dur_etf:.3f}\n")
         audio_files.append(etf_audio)
 
-    # 结尾画面：展示刚刚生成的高斯模糊监控列表
+    # 【片尾分镜 1：回顾总览】
     await safe_generate_tts(OUTRO_TEXT, "audio_outro.mp3")
     dur_outro = get_audio_duration("audio_outro.mp3")
     image_timeline.append(f"file 'ss_main.png'\nduration {dur_outro:.3f}\n")
     audio_files.append("audio_outro.mp3")
 
-    # 结尾画面 2：静音显示 2 秒极简免责声明
+    # 【片尾分镜 2：免责声明 (配合 2 秒静音轨)】
     subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", "2", "-q:a", "9", "-acodec", "libmp3lame", "silence.mp3"])
     image_timeline.append(f"file 'disclaimer.png'\nduration 2.000\n")
     image_timeline.append(f"file 'disclaimer.png'\n")
@@ -262,6 +221,7 @@ async def main():
     with open("audio_input.txt", "w") as f: f.writelines([f"file '{a}'\n" for a in audio_files])
 
     # --- C. 视频极速合成 (-shortest 强制对齐防留白) ---
+    print("🎬 正在渲染输出最终成片...")
     final_video = f"etf_report_{FILE_SUFFIX}.mp4"
     if os.path.exists("bgm.mp3"):
         cmd = [
@@ -278,7 +238,8 @@ async def main():
     
     subprocess.run(cmd, check=True)
     
-    # --- D. 推送网感文案 ---
+    # --- D. 推送 Telegram 全平台素材 ---
+    print("✈️ 正在推送到 Telegram 接收端...")
     bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
     chat_id = os.getenv('TELEGRAM_CHAT_ID')
     
