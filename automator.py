@@ -139,15 +139,13 @@ async def main():
         await page.wait_for_timeout(1000)
         await page.screenshot(path="disclaimer.png")
 
-        # --- 📸 3. TV图表 (完美微调的拉伸贴边裁剪) ---
-        print("🌐 正在抓取完美微调的 K 线图...")
+        # --- 📸 3. TV图表 (纯净原生直接截图，无任何缩放与移动) ---
+        print("🌐 正在抓取纯净原生比例 K 线图...")
         clean_css = """
             .layout__area--top, .layout__area--left, .layout__area--right, .layout__area--bottom, [data-name='widgetbar'], #widgetbar, .widgetbar-wrap { display: none !important; } 
             .layout__area--center { 
                 position: fixed !important; top: 0 !important; left: 0 !important; 
                 width: 100vw !important; height: 100vh !important; z-index: 9999 !important; 
-                transform-origin: top left !important; 
-                transform: scale(1.40, 1.0) translate(-12px, 5px) !important; 
             }
         """
         base_chart_url = TV_CHART_URL.rstrip('/')
@@ -225,21 +223,20 @@ async def main():
     with open("video_input.txt", "w") as f: f.writelines(image_timeline)
     with open("audio_input.txt", "w") as f: f.writelines([f"file '{a}'\n" for a in audio_files])
 
-    # --- C. FFmpeg 运镜渲染引擎 (电影级：极速推镜头 + 垂直扫视) ---
+    # --- C. FFmpeg 运镜渲染引擎 (电影级：极速推近 + 垂直扫视) ---
     print("🎬 正在使用高级滤镜渲染 极速推近 + 垂直扫视 效果...")
-    # 💡 电影级运镜公式解析：
-    # z='min(1.0+(in/12), 3.5)'：镜头在前 30 帧 (1.2秒) 内极速推近放大至 3.5 倍，完美充满屏幕，视野中只剩 ETF 名称。
-    # x='0'：紧贴网页最左侧边缘。
-    # y='if(lt(in,30), (120/2.5)*(zoom-1), 120+(in-30)*3.0)'：
-    #    -> 阶段一 (前1.2秒推镜头)：镜头伴随放大，平滑下移至 120 像素位置 (刚好对准第一名科创芯片)。
-    #    -> 阶段二 (后3.8秒扫视)：放大倍数锁定在 3.5，镜头以每帧 3.0 像素的速度匀速向下扫视。
-    #       在剩余的几秒内，镜头刚好平滑扫过第 1 到第 5 名 ETF，完美衔接下一秒的 K 线图！
+    # 💡 彻底修复整数计算 Bug，强制浮点数运算！轨迹精密解析：
+    # z='min(1.0+(in/30.0)*2.5, 3.5)'：在 30 帧（1.2秒）内，平滑且极速地放大到 3.5 倍。
+    # x='0'：死死贴住屏幕最左侧（只看第一列 ETF 名称）。
+    # y='if(lte(in,30), 5.66*in, 170.0+(in-30.0)*3.0)'：
+    #    -> 阶段1 (前1.2秒)：Y 轴平滑下移至 170 像素（精确跨过顶部表头，第一行直击“科创芯片”）。
+    #    -> 阶段2 (后3.8秒)：镜头锁定 3.5 倍放大状态，以每帧 3.0 像素的速度匀速向下扫视（像演职员表一样扫过前5只ETF）。
     zoom_fps = 25
     zoom_frames = int(remain_zoom_time * zoom_fps)
     zoom_cmd = [
-        "ffmpeg", "-y", "-loop", "1", "-i", "ss_main.png", 
-        "-vf", f"zoompan=z='min(1.0+(in/12), 3.5)':x='0':y='if(lt(in,30), (120/2.5)*(zoom-1), 120+(in-30)*3.0)':d={zoom_frames}:s=720x1280,format=yuv420p", 
-        "-c:v", "libx264", "-r", str(zoom_fps), "-t", f"{remain_zoom_time:.3f}", "ss_main_zoomed.mp4"
+        "ffmpeg", "-y", "-loop", "1", "-framerate", str(zoom_fps), "-i", "ss_main.png", 
+        "-vf", f"zoompan=z='min(1.0+(in/30.0)*2.5, 3.5)':x='0':y='if(lte(in,30), 5.66*in, 170.0+(in-30.0)*3.0)':d={zoom_frames}:s=720x1280", 
+        "-c:v", "libx264", "-r", str(zoom_fps), "-t", f"{remain_zoom_time:.3f}", "-pix_fmt", "yuv420p", "ss_main_zoomed.mp4"
     ]
     subprocess.run(zoom_cmd, check=True)
 
