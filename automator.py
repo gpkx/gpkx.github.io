@@ -139,15 +139,15 @@ async def main():
         await page.wait_for_timeout(1000)
         await page.screenshot(path="disclaimer.png")
 
-        # --- 📸 3. TV图表 (115% 等比例放大 + 左上角对齐裁切) ---
-        print("🌐 正在抓取 K 线图 (115% 放大左上角对齐)...")
+        # --- 📸 3. TV图表 (左上角对齐 + 纵向115% + 横向130%强力拉伸) ---
+        print("🌐 正在抓取 K 线图 (高度115%+宽度130%横向拉伸)...")
         clean_css = """
             .layout__area--top, .layout__area--left, .layout__area--right, .layout__area--bottom, [data-name='widgetbar'], #widgetbar, .widgetbar-wrap { display: none !important; } 
             .layout__area--center { 
                 position: fixed !important; top: 0 !important; left: 0 !important; 
                 width: 100vw !important; height: 100vh !important; z-index: 9999 !important; 
                 transform-origin: top left !important; 
-                transform: scale(1.15) !important; 
+                transform: scale(1.30, 1.15) !important; 
             }
         """
         base_chart_url = TV_CHART_URL.rstrip('/')
@@ -158,7 +158,6 @@ async def main():
             symbol = get_tv_symbol(etf['code'])
             await page.goto(f"{base_chart_url}/?symbol={symbol}&interval={target_interval}", wait_until="domcontentloaded", timeout=60000)
             await page.add_style_tag(content=clean_css)
-            # 触发窗口 resize 事件，让图表重新自适应画板
             await page.evaluate("window.dispatchEvent(new Event('resize'));")
             await page.wait_for_timeout(5000)
             await page.screenshot(path=f"ss_etf_{i}_{suffix}.png")
@@ -226,7 +225,7 @@ async def main():
     with open("video_input.txt", "w") as f: f.writelines(image_timeline)
     with open("audio_input.txt", "w") as f: f.writelines([f"file '{a}'\n" for a in audio_files])
 
-    # --- C. Python 物理引擎运镜 (绝对生效：电影级极速推近 + 垂直摇摄) ---
+    # --- C. Python 物理引擎运镜 (绝对生效：大字号+极速垂直摇摄版) ---
     print("🎬 正在使用 Python 物理引擎渲染运镜 (计算每一帧轨迹)...")
     from PIL import Image
     import shutil
@@ -235,62 +234,53 @@ async def main():
     zoom_frames = int(remain_zoom_time * zoom_fps)
     frames_dir = "temp_zoom_frames"
     
-    # 清理旧的缓存帧
     if os.path.exists(frames_dir): 
         shutil.rmtree(frames_dir)
     os.makedirs(frames_dir)
 
-    # 加载原图
     img = Image.open("ss_main.png")
-    w, h = img.size  # 手机屏幕 720x1280
+    w, h = img.size  # 720x1280
 
-    # 设定特写画框的尺寸 (放大 3.3 倍，正好切除右侧所有数据，只留名字)
-    target_w = int(w / 3.3)
-    target_h = int(h / 3.3)
+    # 💡 调整1：将特写画框的缩放比例从 3.3 提升到 4.0，文字会变得更大、更清晰
+    target_w = int(w / 4.0)
+    target_h = int(h / 4.0)
 
     for i in range(zoom_frames):
         if i <= 30:
             # 阶段1 (前1.2秒): 极速向左上角推进
             progress = i / 30.0
-            
-            # 💡 灵魂代码：三次缓动曲线 (Cubic Ease-out)
-            # 让镜头的推近像真实摄像机一样，起步极快，到位时平滑减速刹车
             ease_progress = 1 - (1 - progress) ** 3
             
             current_w = int(w - (w - target_w) * ease_progress)
             current_h = int(h - (h - target_h) * ease_progress)
             current_x = 0
-            # Y轴向下偏移，完美避开顶部表头
-            current_y = int(170 * ease_progress) 
+            # Y轴初始定位微调为 165，确保 4.0 倍大字模式下第一只行不会被切到头
+            current_y = int(165 * ease_progress) 
         else:
-            # 阶段2 (后3.8秒): 保持巨大特写，镜头匀速向下扫视
+            # 阶段2 (后3.8秒): 保持 4.0 倍巨大特写，镜头更快速地向下扫视
             current_w = target_w
             current_h = target_h
             current_x = 0
             pan_progress = (i - 30) / (zoom_frames - 30)
             
-            # 向下匀速扫过 220 个像素 (大约正好扫过前 4-5 只 ETF)
-            current_y = int(170 + (220 * pan_progress))
+            # 💡 调整2：将扫描的纵向像素从 220 暴增到 380！
+            # 同样的秒数内，镜头移动的距离更长，视觉上的下移速度会明显变快，能看清更多只ETF的名字
+            current_y = int(165 + (380 * pan_progress))
         
-        # 精确裁剪当前帧，并使用高画质算法 (LANCZOS) 重新拉伸到 720x1280
+        # 精确裁剪当前帧并拉伸
         box = (current_x, current_y, current_x + current_w, current_y + current_h)
         frame = img.crop(box).resize((w, h), Image.Resampling.LANCZOS)
         
-        # 💡 核心修复：将带有透明通道的 RGBA 转换为不支持透明的 RGB 模式，再保存为 JPEG
+        # 💡 包含 RGBA 转 RGB 修复，彻底解决之前的报错 Bug
         frame = frame.convert('RGB')
-        
-        # 保存这一帧 (格式化为 frame_0000.jpg, frame_0001.jpg)
-        frame.save(f"{frames_dir}/frame_{i:04d}.jpg", quality=90)
+        frame.save(f"{frames_dir}/frame_{i:04d}.jpg", quality=95)
 
     print("🎬 序列帧计算完毕，正在合成为丝滑视频...")
-    # 让 FFmpeg 把这 100 多张静态图片连起来变成 25 帧的视频 (这种最基础的拼接绝对不会出Bug)
     zoom_cmd = [
         "ffmpeg", "-y", "-framerate", str(zoom_fps), "-i", f"{frames_dir}/frame_%04d.jpg",
         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(zoom_fps), "ss_main_zoomed.mp4"
     ]
     subprocess.run(zoom_cmd, check=True)
-    
-    # 顺手清理一下临时生成的图片文件夹释放空间
     shutil.rmtree(frames_dir)
 
     # --- D. 视频最终多轨合成 ---
