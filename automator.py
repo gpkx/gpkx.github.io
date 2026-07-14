@@ -139,13 +139,15 @@ async def main():
         await page.wait_for_timeout(1000)
         await page.screenshot(path="disclaimer.png")
 
-        # --- 📸 3. TV图表 (纯净原生直接截图，无任何缩放与移动) ---
-        print("🌐 正在抓取纯净原生比例 K 线图...")
+        # --- 📸 3. TV图表 (115% 等比例放大 + 左上角对齐裁切) ---
+        print("🌐 正在抓取 K 线图 (115% 放大左上角对齐)...")
         clean_css = """
             .layout__area--top, .layout__area--left, .layout__area--right, .layout__area--bottom, [data-name='widgetbar'], #widgetbar, .widgetbar-wrap { display: none !important; } 
             .layout__area--center { 
                 position: fixed !important; top: 0 !important; left: 0 !important; 
                 width: 100vw !important; height: 100vh !important; z-index: 9999 !important; 
+                transform-origin: top left !important; 
+                transform: scale(1.15) !important; 
             }
         """
         base_chart_url = TV_CHART_URL.rstrip('/')
@@ -156,6 +158,7 @@ async def main():
             symbol = get_tv_symbol(etf['code'])
             await page.goto(f"{base_chart_url}/?symbol={symbol}&interval={target_interval}", wait_until="domcontentloaded", timeout=60000)
             await page.add_style_tag(content=clean_css)
+            # 触发窗口 resize 事件，让图表重新自适应画板
             await page.evaluate("window.dispatchEvent(new Event('resize'));")
             await page.wait_for_timeout(5000)
             await page.screenshot(path=f"ss_etf_{i}_{suffix}.png")
