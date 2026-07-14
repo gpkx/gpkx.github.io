@@ -225,15 +225,16 @@ async def main():
     with open("video_input.txt", "w") as f: f.writelines(image_timeline)
     with open("audio_input.txt", "w") as f: f.writelines([f"file '{a}'\n" for a in audio_files])
 
-    # --- C. FFmpeg 运镜渲染引擎 (预先生成5秒平滑拉近镜头) ---
-    print("🎬 正在使用高级滤镜渲染 5秒 极速推镜头效果...")
-    # 💡 核心修改：z='min(zoom+0.02, 2.0)' 代表以 0.02 步长极速缩放到 2.0 倍 (2x 放大)
-    # y='ih*0.25-(ih*0.25/zoom)' 代表将镜头中心焦点垂直锁定在 25% 高度处（这正是前 4-5 只 ETF 的黄金中心位置）
+    # --- C. FFmpeg 运镜渲染引擎 (精准左上角轨道推镜头) ---
+    print("🎬 正在使用高级滤镜渲染 极速推镜头 定格效果...")
+    # 💡 核心运镜方程解析：
+    # z='min(1+(in/25), 3.0)'：in/25 代表每秒放大1倍。镜头会在前 2 秒内极速放大到 3.0 倍，后 3 秒死死定格！
+    # x='10*(zoom-1)' 和 y='105*(zoom-1)'：配合缩放的轨道方程。当放大到3倍时，X刚好锁定在 20 像素，Y锁定在 210 像素。完美卡住前5只ETF！
     zoom_fps = 25
     zoom_frames = int(remain_zoom_time * zoom_fps)
     zoom_cmd = [
         "ffmpeg", "-y", "-loop", "1", "-i", "ss_main.png", 
-        "-vf", f"zoompan=z='min(zoom+0.02,2.0)':x='iw/2-(iw/2/zoom)':y='ih*0.25-(ih*0.25/zoom)':d={zoom_frames}:s=720x1280,format=yuv420p", 
+        "-vf", f"zoompan=z='min(1+(in/25), 3.0)':x='10*(zoom-1)':y='105*(zoom-1)':d={zoom_frames}:s=720x1280,format=yuv420p", 
         "-c:v", "libx264", "-r", str(zoom_fps), "-t", f"{remain_zoom_time:.3f}", "ss_main_zoomed.mp4"
     ]
     subprocess.run(zoom_cmd, check=True)
