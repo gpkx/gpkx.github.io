@@ -171,7 +171,7 @@
                                     </th>
                                     <th class="py-2.5 px-2 md:px-3 cursor-pointer hover:bg-slate-200 transition-colors" @click="handleSort('day_status')">
                                         <div class="flex items-center justify-center gap-1">
-                                            全天
+                                            日线
                                             <div class="flex flex-col text-[9px] leading-[8px] text-gray-300">
                                                 <i class="fa-solid fa-caret-up" :class="{'text-blue-600': sortColumn === 'day_status' && sortOrder === 'asc'}"></i>
                                                 <i class="fa-solid fa-caret-down" :class="{'text-blue-600': sortColumn === 'day_status' && sortOrder === 'desc'}"></i>
@@ -180,7 +180,7 @@
                                     </th>
                                     <th class="py-2.5 px-2 md:px-3 cursor-pointer hover:bg-slate-200 transition-colors" @click="handleSort('week_status')">
                                         <div class="flex items-center justify-center gap-1">
-                                            本周
+                                            周线
                                             <div class="flex flex-col text-[9px] leading-[8px] text-gray-300">
                                                 <i class="fa-solid fa-caret-up" :class="{'text-blue-600': sortColumn === 'week_status' && sortOrder === 'asc'}"></i>
                                                 <i class="fa-solid fa-caret-down" :class="{'text-blue-600': sortColumn === 'week_status' && sortOrder === 'desc'}"></i>
@@ -488,17 +488,17 @@
                             const aHasDay = aDay > -9999;
                             const bHasDay = bDay > -9999;
                             
-                            // 都存在全天数据，按全天跌涨幅的绝对值由大到小排
+                            // 都存在日线数据，按日线跌涨幅的绝对值由大到小排
                             if (aHasDay && bHasDay) {
                                 return bDay - aDay;
                             } 
-                            // 仅其中一方有全天数据，有数据的排在前面
+                            // 仅其中一方有日线数据，有数据的排在前面
                             else if (aHasDay && !bHasDay) {
                                 return -1;
                             } else if (!aHasDay && bHasDay) {
                                 return 1;
                             } 
-                            // 都不存在全天数据，则按上午或下午最大的绝对值跌涨幅由大到小排
+                            // 都不存在日线数据，则按上午或下午最大的绝对值跌涨幅由大到小排
                             else {
                                 return bHalfMax - aHalfMax;
                             }
