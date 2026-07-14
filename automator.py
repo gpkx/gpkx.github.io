@@ -276,6 +276,9 @@ async def main():
         box = (current_x, current_y, current_x + current_w, current_y + current_h)
         frame = img.crop(box).resize((w, h), Image.Resampling.LANCZOS)
         
+        # 💡 核心修复：将带有透明通道的 RGBA 转换为不支持透明的 RGB 模式，再保存为 JPEG
+        frame = frame.convert('RGB')
+        
         # 保存这一帧 (格式化为 frame_0000.jpg, frame_0001.jpg)
         frame.save(f"{frames_dir}/frame_{i:04d}.jpg", quality=90)
 
