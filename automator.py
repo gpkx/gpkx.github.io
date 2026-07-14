@@ -225,18 +225,20 @@ async def main():
     with open("video_input.txt", "w") as f: f.writelines(image_timeline)
     with open("audio_input.txt", "w") as f: f.writelines([f"file '{a}'\n" for a in audio_files])
 
-    # --- C. FFmpeg 运镜渲染引擎 (精准左上角轨道推镜头) ---
-    print("🎬 正在使用高级滤镜渲染 极速推镜头 定格效果...")
-    # 💡 核心修复：避开 FFmpeg 整数除法 Bug！
-    # z='min(zoom+0.04, 3.0)'：每帧固定放大 0.04 倍。25帧/秒 * 2秒 * 0.04 = 2.0，加上初始的1.0，刚好在第2秒时放大到 3 倍！
-    # 然后触发 min() 限制，剩下的3秒画面完美定格！
-    # x='10*(zoom-1)' 和 y='85*(zoom-1)'：伴随放大，镜头以像素级精度向左上角移动。
-    # 最终定格时，X偏移20像素，Y偏移170像素（完美避开顶部深色表头，让“科创芯片”直接顶在最上面）。
+    # --- C. FFmpeg 运镜渲染引擎 (电影级：极速推镜头 + 垂直扫视) ---
+    print("🎬 正在使用高级滤镜渲染 极速推近 + 垂直扫视 效果...")
+    # 💡 电影级运镜公式解析：
+    # z='min(1.0+(in/12), 3.5)'：镜头在前 30 帧 (1.2秒) 内极速推近放大至 3.5 倍，完美充满屏幕，视野中只剩 ETF 名称。
+    # x='0'：紧贴网页最左侧边缘。
+    # y='if(lt(in,30), (120/2.5)*(zoom-1), 120+(in-30)*3.0)'：
+    #    -> 阶段一 (前1.2秒推镜头)：镜头伴随放大，平滑下移至 120 像素位置 (刚好对准第一名科创芯片)。
+    #    -> 阶段二 (后3.8秒扫视)：放大倍数锁定在 3.5，镜头以每帧 3.0 像素的速度匀速向下扫视。
+    #       在剩余的几秒内，镜头刚好平滑扫过第 1 到第 5 名 ETF，完美衔接下一秒的 K 线图！
     zoom_fps = 25
     zoom_frames = int(remain_zoom_time * zoom_fps)
     zoom_cmd = [
         "ffmpeg", "-y", "-loop", "1", "-i", "ss_main.png", 
-        "-vf", f"zoompan=z='min(zoom+0.04,3.0)':x='10*(zoom-1)':y='85*(zoom-1)':d={zoom_frames}:s=720x1280,format=yuv420p", 
+        "-vf", f"zoompan=z='min(1.0+(in/12), 3.5)':x='0':y='if(lt(in,30), (120/2.5)*(zoom-1), 120+(in-30)*3.0)':d={zoom_frames}:s=720x1280,format=yuv420p", 
         "-c:v", "libx264", "-r", str(zoom_fps), "-t", f"{remain_zoom_time:.3f}", "ss_main_zoomed.mp4"
     ]
     subprocess.run(zoom_cmd, check=True)
