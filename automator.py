@@ -19,8 +19,8 @@ IS_MIDDAY = NOW.hour < 13
 TIME_LABEL = "午盘" if IS_MIDDAY else "收盘"
 FILE_SUFFIX = NOW.strftime("%Y%m%d_%H%M")
 
-# 2. 极简口播话术（加入监控背书）
-INTRO_TEXT = f"我们全天候监控40多只核心ETF，每天精选波动最大的4只进行复盘，欢迎关注。截至今日收盘。"
+# 2. 极简口播话术（配合新分镜）
+INTRO_TEXT = f"欢迎关注，我们全天候监控40多只大型ETF，每天对波动最大的4只进行复盘，更多ETF请联系我们。"
 OUTRO_TEXT = "本内容不构成投资建议。"
 
 def get_tv_symbol(code):
@@ -51,11 +51,10 @@ async def safe_generate_tts(text, filename, retries=3):
             else: raise Exception(f"TTS 失败: {e}")
 
 async def main():
-    print(f"🚀 开始执行【纯净分镜+中心居中裁剪】工作流... {NOW}")
+    print(f"🚀 开始执行【电影级运镜推镜头+直接免责片尾】工作流... {NOW}")
     
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        # 💻 严格 9:16 竖屏手机环境
         context = await browser.new_context(
             viewport={'width': 720, 'height': 1280}, is_mobile=True,
             user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 Safari/604.1"
@@ -74,8 +73,6 @@ async def main():
         print("🔍 正在截取监控总览页面...")
         await page.goto(TARGET_URL, wait_until="networkidle")
         await page.wait_for_timeout(5000) 
-        
-        # 💡 摒弃花里胡哨的模糊裁切，直接保存一张最真实的 720x1280 手机界面截图
         await page.screenshot(path="ss_main.png")
         
         etf_list = []
@@ -127,7 +124,6 @@ async def main():
         await page.screenshot(path="cover_image.png")
 
         # --- 🎨 2. 生成【白色极简】免责声明 ---
-        print("🎨 正在渲染极简白色免责声明...")
         disclaimer_html = """
         <!DOCTYPE html><html><head><meta charset="UTF-8"><style>
             body { margin: 0; padding: 0; width: 720px; height: 1280px; background: #ffffff; display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: 'Microsoft YaHei', sans-serif; color: #333333; text-align: center; padding: 0 50px; box-sizing: border-box;}
@@ -144,11 +140,8 @@ async def main():
         await page.wait_for_timeout(1000)
         await page.screenshot(path="disclaimer.png")
 
-        # --- 📸 3. TV图表 (120%放大 + 绝对居中裁切边缘) ---
-        print("🌐 正在抓取完美比例 120% 中心对齐 K 线图...")
-        # 💡 终极微调：
-        # scale(1.40, 1.0) 代表宽度拉伸到 140%（彻底干掉右边空白），高度保持 100%（不产生垂直变形）
-        # translate(-12px, 5px) 代表左边维持 -12px 不动，顶端向下移动 5px（把 ETF 名称完全拉回视野内）
+        # --- 📸 3. TV图表 (经过微调的拉伸贴边裁剪) ---
+        print("🌐 正在抓取完美微调的 K 线图...")
         clean_css = """
             .layout__area--top, .layout__area--left, .layout__area--right, .layout__area--bottom, [data-name='widgetbar'], #widgetbar, .widgetbar-wrap { display: none !important; } 
             .layout__area--center { 
@@ -168,35 +161,47 @@ async def main():
             await page.add_style_tag(content=clean_css)
             await page.evaluate("window.dispatchEvent(new Event('resize'));")
             await page.wait_for_timeout(5000)
-            
             await page.screenshot(path=f"ss_etf_{i}_{suffix}.png")
 
         await browser.close()
 
-    # --- B. 语音与高级时间轴 ---
-    print("🎵 正在合成带高级分镜的底层时间轴...")
-    image_timeline = []
-    audio_files = []
-    
-    # 【片头分镜】
+    # --- B. 语音合成与复合时间轴生成 ---
+    print("🎵 正在合成底层音频轨...")
     await safe_generate_tts(INTRO_TEXT, "audio_intro.mp3")
     dur_intro = get_audio_duration("audio_intro.mp3")
-    audio_files.append("audio_intro.mp3")
     
-    # 💡 核心修改：前 3 秒只显示帅气的文字封面，剩下的口播时间无缝切换到监控网页全景
-    cover_duration = 3.000
-    remain_intro_duration = max(0.1, dur_intro - cover_duration)
-    
-    image_timeline.append(f"file 'cover_image.png'\nduration {cover_duration:.3f}\n")
-    image_timeline.append(f"file 'ss_main.png'\nduration {remain_intro_duration:.3f}\n")
+    # 动态前奏总时长要求：2秒封面 + 2秒大盘静止 + 5秒放大推镜头 = 9秒
+    # 如果口播声音少于9秒，则用无声轨把前奏撑到9秒，确保运镜展示完全
+    intro_visual_total = 9.000
+    if dur_intro < intro_visual_total:
+        silence_pad = intro_visual_total - dur_intro
+        subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", str(silence_pad), "intro_pad.mp3"])
+        with open("intro_audio_list.txt", "w") as f:
+            f.write("file 'audio_intro.mp3'\nfile 'intro_pad.mp3'\n")
+        subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "intro_audio_list.txt", "-c", "copy", "final_intro.mp3"])
+    else:
+        # 如果话术原本就很长，直接使用口播时长
+        subprocess.run(["ffmpeg", "-y", "-i", "audio_intro.mp3", "-c", "copy", "final_intro.mp3"])
+        intro_visual_total = dur_intro
+
+    audio_files = ["final_intro.mp3"]
+    image_timeline = []
+
+    # 1. 封面展示 2 秒
+    image_timeline.append("file 'cover_image.png'\nduration 2.000\n")
+    # 2. 监控大盘原始展示 2 秒
+    image_timeline.append("file 'ss_main.png'\nduration 2.000\n")
+    # 3. 剩余时间分给大盘动态放大推镜头 (最少5秒)
+    remain_zoom_time = intro_visual_total - 4.000
+    image_timeline.append(f"file 'ss_main_zoomed.mp4'\nduration {remain_zoom_time:.3f}\n")
 
     full_text = f"🔥 【{TIME_LABEL}量化雷达播报】\n\n"
     transition_words = ["首先，", "其次，", "再看", "最后，"]
     
-    # 【ETF 内容分镜】
+    # 【ETF 正片分镜】
     for i, etf in enumerate(etf_list):
         readable_val = format_quant_voice(etf['change'])
-        etf_text = f"{transition_words[i]}{etf['name']}，ATR读数{readable_val}。"
+        etf_text = f"{transition_words[i]}{etf['name']}，{readable_val}。"
         full_text += f"🔹 {etf['name']} 👉 {etf['change']}\n"
         
         etf_audio = f"audio_etf_{i}.mp3"
@@ -208,40 +213,89 @@ async def main():
         image_timeline.append(f"file '{img_name}'\nduration {dur_etf:.3f}\n")
         audio_files.append(etf_audio)
 
-    # 【片尾分镜 1：回顾总览】
+    # 【片尾分镜：直接显示免责声明】
     await safe_generate_tts(OUTRO_TEXT, "audio_outro.mp3")
     dur_outro = get_audio_duration("audio_outro.mp3")
-    image_timeline.append(f"file 'ss_main.png'\nduration {dur_outro:.3f}\n")
+    image_timeline.append(f"file 'disclaimer.png'\nduration {dur_outro:.3f}\n")
     audio_files.append("audio_outro.mp3")
 
-    # 【片尾分镜 2：免责声明 (配合 2 秒静音轨)】
-    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", "2", "-q:a", "9", "-acodec", "libmp3lame", "silence.mp3"])
+    # 免责声明底部的静音留白2秒
+    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", "2", "silence_end.mp3"])
     image_timeline.append(f"file 'disclaimer.png'\nduration 2.000\n")
     image_timeline.append(f"file 'disclaimer.png'\n")
-    audio_files.append("silence.mp3")
+    audio_files.append("silence_end.mp3")
 
     with open("video_input.txt", "w") as f: f.writelines(image_timeline)
     with open("audio_input.txt", "w") as f: f.writelines([f"file '{a}'\n" for a in audio_files])
 
-    # --- C. 视频极速合成 (-shortest 强制对齐防留白) ---
-    print("🎬 正在渲染输出最终成片...")
+    # --- C. FFmpeg 运镜渲染引擎 (预先生成5秒平滑放大推镜头) ---
+    print("🎬 正在使用高级滤镜渲染 5秒 大盘缓慢推镜头效果...")
+    # 💡 慢速推镜头核心公式：用 zoompan 滤镜在指定时间内把焦距从 1.0 平滑递增到 1.35，原点设在最前面的4-5只ETF区域
+    zoom_fps = 25
+    zoom_frames = int(remain_zoom_time * zoom_fps)
+    zoom_cmd = [
+        "ffmpeg", "-y", "-loop", "1", "-i", "ss_main.png", 
+        "-vf", f"zoompan=z='min(zoom+0.0028,1.35)':x='iw/2-iw/2/zoom':y='ih*0.1':d={zoom_frames}:s=720x1280,format=yuv420p", 
+        "-c:v", "libx264", "-r", str(zoom_fps), "-t", f"{remain_zoom_time:.3f}", "ss_main_zoomed.mp4"
+    ]
+    subprocess.run(zoom_cmd, check=True)
+
+    # --- D. 视频最终多轨合成 ---
+    print("🎬 正在拼装最终带有动态前奏的分镜视频...")
     final_video = f"etf_report_{FILE_SUFFIX}.mp4"
+    
+    # 这里的视频分镜序列包含了一个临时的 .mp4 运镜片段，需要用特殊的 concat 混合模式
+    # 为了保证绝对稳定，先用简易拼接生成无声完整版视频，再挂载音频
+    with open("video_concat_pure.txt", "w") as f:
+        f.write("file 'cover_image.png'\nduration 2.000\n")
+        f.write("file 'ss_main.png'\nduration 2.000\n")
+    
+    # 将图片序列和视频运镜混合在一起做高级组装
+    mix_video_cmd = [
+        "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "video_input.txt", 
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "25", "pure_video_output.mp4"
+    ]
+    # 注意：因为 video_input.txt 里提到了 ss_main_zoomed.mp4，concat 需要统一格式。
+    # 我们改用直接的 filter_complex 做更精细的组装，或者用分段拼接来防止编码不一致闪退：
+    
+    # 【更稳健的拼接策略：分段组装再合并】
+    # 1. 组装前面的封面和大盘静态
+    subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", "cover_image.png", "-t", "2", "-c:v", "libx264", "-r", "25", "-pix_fmt", "yuv420p", "p1.mp4"], check=True)
+    subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", "ss_main.png", "-t", "2", "-c:v", "libx264", "-r", "25", "-pix_fmt", "yuv420p", "p2.mp4"], check=True)
+    # 2. 组装后面的所有K线及片尾
+    with open("video_backend.txt", "w") as f:
+        f.writelines(image_timeline[3:])
+    subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "video_backend.txt", "-c:v", "libx264", "-r", "25", "-pix_fmt", "yuv420p", "p4.mp4"], check=True)
+    
+    # 3. 将 p1 + p2 + ss_main_zoomed.mp4 + p4 全体无缝串联
+    with open("final_stitch.txt", "w") as f:
+        f.write("file 'p1.mp4'\nfile 'p2.mp4'\nfile 'ss_main_zoomed.mp4'\nfile 'p4.mp4'\n")
+    subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "final_stitch.txt", "-c:v", "copy", "pre_final_video.mp4"], check=True)
+
+    # 4. 挂载混合了 BGM 的音频轨
     if os.path.exists("bgm.mp3"):
         cmd = [
-            "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "video_input.txt", 
+            "ffmpeg", "-y", "-i", "pre_final_video.mp4", 
             "-f", "concat", "-safe", "0", "-i", "audio_input.txt", 
             "-stream_loop", "-1", "-i", "bgm.mp3", 
             "-filter_complex", "[1:a]volume=1.0[a1];[2:a]volume=0.15[a2];[a1][a2]amix=inputs=2:duration=first:dropout_transition=2[a]", 
             "-map", "0:v", "-map", "[a]", 
-            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "25", "-c:a", "aac", "-b:a", "192k", 
-            "-shortest", final_video  
+            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", final_video  
         ]
     else:
-        cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "video_input.txt", "-f", "concat", "-safe", "0", "-i", "audio_input.txt", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "25", "-c:a", "aac", "-b:a", "192k", "-shortest", final_video]
+        cmd = [
+            "ffmpeg", "-y", "-i", "pre_final_video.mp4", 
+            "-f", "concat", "-safe", "0", "-i", "audio_input.txt", 
+            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", final_video
+        ]
     
     subprocess.run(cmd, check=True)
     
-    # --- D. 推送 Telegram 全平台素材 ---
+    # --- E. 清理临时分段视频 ---
+    for tmp in ["p1.mp4", "p2.mp4", "p4.mp4", "ss_main_zoomed.mp4", "pre_final_video.mp4"]:
+        if os.path.exists(tmp): os.remove(tmp)
+        
+    # --- F. 推送 Telegram 全平台素材 ---
     print("✈️ 正在推送到 Telegram 接收端...")
     bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
     chat_id = os.getenv('TELEGRAM_CHAT_ID')
