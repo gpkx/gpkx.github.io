@@ -2,8 +2,8 @@ name: Automated ETF Video Workflow
 
 on:
   schedule:
-    # 每天北京时间 11:40 (UTC 03:40)
-    - cron: '40 3 * * 1-5'
+    # 每天北京时间 11:50 (UTC 03:40)
+    - cron: '50 3 * * 1-5'
     # 每天北京时间 16:00 (UTC 08:00)
     - cron: '0 8 * * 1-5'
   workflow_dispatch: # 允许手动点击运行
