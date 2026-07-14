@@ -43,6 +43,19 @@ def get_audio_duration(file_path):
     result = subprocess.run(cmd, stdout=subprocess.PIPE, text=True)
     return float(result.stdout.strip())
 
+# 引入带重试和缓冲机制的防封 TTS 生成器
+async def safe_generate_tts(text, filename, retries=3):
+    for attempt in range(retries):
+        try:
+            await edge_tts.Communicate(text, "zh-CN-YunxiNeural").save(filename)
+            return True
+        except Exception as e:
+            print(f"⚠️ TTS 接口被限流或报错 (尝试 {attempt + 1}/{retries}): {e}")
+            if attempt < retries - 1:
+                await asyncio.sleep(3) # 失败后强行休息 3 秒再试
+            else:
+                raise Exception(f"TTS 生成彻底失败，请稍后再试: {e}")
+
 async def main():
     print(f"🚀 开始执行【量化严谨版】全自动工作流... {NOW}")
     
@@ -196,11 +209,12 @@ async def main():
         await browser.close()
 
     # --- B. 语音合成与画面底层时间轴 ---
-    print("🎵 开始生成 TTS 语音并构建时间轴...")
+    print("🎵 开始生成 TTS 语音并构建时间轴 (已开启防限流模式)...")
     image_timeline = []
     audio_files = []
     
-    await edge_tts.Communicate(INTRO_TEXT, "zh-CN-YunxiNeural").save("audio_intro.mp3")
+    # 替换原有的 edge_tts.Communicate，使用新的 safe_generate_tts
+    await safe_generate_tts(INTRO_TEXT, "audio_intro.mp3")
     dur_intro = get_audio_duration("audio_intro.mp3")
     image_timeline.append(f"file 'cover_image.png'\nduration {dur_intro:.3f}\n")
     audio_files.append("audio_intro.mp3")
@@ -213,7 +227,8 @@ async def main():
         full_text += etf_text + "\n"
         
         etf_audio = f"audio_etf_{i}.mp3"
-        await edge_tts.Communicate(etf_text, "zh-CN-YunxiNeural").save(etf_audio)
+        await safe_generate_tts(etf_text, etf_audio)
+        await asyncio.sleep(1.5) # 💡 核心防封：每次生成完强行停顿 1.5 秒，模拟真人语速，避免触发接口警报
         
         dur_etf = get_audio_duration(etf_audio)
         half_dur = dur_etf / 2.0 
@@ -221,7 +236,7 @@ async def main():
         image_timeline.append(f"file 'ss_etf_{i}_1d.png'\nduration {half_dur:.3f}\n")
         audio_files.append(etf_audio)
 
-    await edge_tts.Communicate(OUTRO_TEXT, "zh-CN-YunxiNeural").save("audio_outro.mp3")
+    await safe_generate_tts(OUTRO_TEXT, "audio_outro.mp3")
     dur_outro = get_audio_duration("audio_outro.mp3")
     image_timeline.append(f"file 'ss_main.png'\nduration {dur_outro:.3f}\n")
     image_timeline.append(f"file 'ss_main.png'\n")
