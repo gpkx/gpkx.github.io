@@ -144,14 +144,14 @@ async def main():
         await page.screenshot(path="disclaimer.png")
 
         # --- 📸 3. TV图表 (左上角对齐 + 纵向115% + 横向130%强力拉伸) ---
-        print("🌐 正在抓取 K 线图 (高度115%+宽度130%横向拉伸)...")
+        print("🌐 正在抓取 K 线图 (高度115%+宽度145%横向拉伸)...")
         clean_css = """
             .layout__area--top, .layout__area--left, .layout__area--right, .layout__area--bottom, [data-name='widgetbar'], #widgetbar, .widgetbar-wrap { display: none !important; } 
             .layout__area--center { 
                 position: fixed !important; top: 0 !important; left: 0 !important; 
                 width: 100vw !important; height: 100vh !important; z-index: 9999 !important; 
                 transform-origin: top left !important; 
-                transform: scale(1.30, 1.15) !important; 
+                transform: scale(1.45, 1.15) !important; 
             }
         """
         base_chart_url = TV_CHART_URL.rstrip('/')
@@ -246,8 +246,8 @@ async def main():
     w, h = img.size  # 720x1280
 
     # 💡 调整1：将特写画框的缩放比例从 3.3 提升到 4.0，文字会变得更大、更清晰
-    target_w = int(w / 4.0)
-    target_h = int(h / 4.0)
+    target_w = int(w / 5.0)
+    target_h = int(h / 5.0)
 
     for i in range(zoom_frames):
         if i <= 30:
@@ -269,7 +269,7 @@ async def main():
             
             # 💡 调整2：将扫描的纵向像素从 220 暴增到 380！
             # 同样的秒数内，镜头移动的距离更长，视觉上的下移速度会明显变快，能看清更多只ETF的名字
-            current_y = int(165 + (380 * pan_progress))
+            current_y = int(165 + (420 * pan_progress))
         
         # 精确裁剪当前帧并拉伸
         box = (current_x, current_y, current_x + current_w, current_y + current_h)
