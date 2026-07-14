@@ -20,7 +20,7 @@ TIME_LABEL = "午盘" if IS_MIDDAY else "收盘"
 FILE_SUFFIX = NOW.strftime("%Y%m%d_%H%M")
 
 # 2. 极简口播话术（配合新分镜）
-INTRO_TEXT = f"欢迎关注ETF量化跟踪。我们全天候监控40多只A股核心ETF，每次为您精选波动最大的4只进行客观复盘。截至{TIME_LABEL}，来看最新读数。"
+INTRO_TEXT = f"欢迎关注，我们全天候监控40多只大型ETF，每天对波动最大的4只进行复盘，需要更多ETF请联系我们。"
 OUTRO_TEXT = "本内容不构成投资建议。"
 
 def get_tv_symbol(code):
