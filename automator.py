@@ -20,7 +20,7 @@ TIME_LABEL = "午盘" if IS_MIDDAY else "收盘"
 FILE_SUFFIX = NOW.strftime("%Y%m%d_%H%M")
 
 # 2. 极简口播话术（配合新分镜）
-INTRO_TEXT = f"欢迎关注，我们全天候监控40多只大型ETF，每天对波动最大的4只进行复盘，更多ETF请联系我们。"
+INTRO_TEXT = f"欢迎关注ETF量化跟踪。我们全天候监控40多只A股核心ETF，每次为您精选波动最大的4只进行客观复盘。截至{TIME_LABEL}，来看最新读数。"
 OUTRO_TEXT = "本内容不构成投资建议。"
 
 def get_tv_symbol(code):
@@ -30,7 +30,6 @@ def get_tv_symbol(code):
 def format_quant_voice(val_str):
     try:
         val = float(val_str.replace('%', '').replace('+', ''))
-        # 加上空格 A T R 是为了防止语音引擎错误连读，% 引擎会自动读成“百分之”
         if val > 0: return f"A T R涨幅为{abs(val)}%"
         elif val < 0: return f"A T R跌幅为{abs(val)}%"
         return "A T R在零轴附近"
@@ -51,7 +50,7 @@ async def safe_generate_tts(text, filename, retries=3):
             else: raise Exception(f"TTS 失败: {e}")
 
 async def main():
-    print(f"🚀 开始执行【电影级运镜推镜头+直接免责片尾】工作流... {NOW}")
+    print(f"🚀 开始执行【极速推镜头定格+直接免责片尾】工作流... {NOW}")
     
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
@@ -140,7 +139,7 @@ async def main():
         await page.wait_for_timeout(1000)
         await page.screenshot(path="disclaimer.png")
 
-        # --- 📸 3. TV图表 (经过微调的拉伸贴边裁剪) ---
+        # --- 📸 3. TV图表 (完美微调的拉伸贴边裁剪) ---
         print("🌐 正在抓取完美微调的 K 线图...")
         clean_css = """
             .layout__area--top, .layout__area--left, .layout__area--right, .layout__area--bottom, [data-name='widgetbar'], #widgetbar, .widgetbar-wrap { display: none !important; } 
@@ -171,7 +170,6 @@ async def main():
     dur_intro = get_audio_duration("audio_intro.mp3")
     
     # 动态前奏总时长要求：2秒封面 + 2秒大盘静止 + 5秒放大推镜头 = 9秒
-    # 如果口播声音少于9秒，则用无声轨把前奏撑到9秒，确保运镜展示完全
     intro_visual_total = 9.000
     if dur_intro < intro_visual_total:
         silence_pad = intro_visual_total - dur_intro
@@ -180,7 +178,6 @@ async def main():
             f.write("file 'audio_intro.mp3'\nfile 'intro_pad.mp3'\n")
         subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "intro_audio_list.txt", "-c", "copy", "final_intro.mp3"])
     else:
-        # 如果话术原本就很长，直接使用口播时长
         subprocess.run(["ffmpeg", "-y", "-i", "audio_intro.mp3", "-c", "copy", "final_intro.mp3"])
         intro_visual_total = dur_intro
 
@@ -228,14 +225,15 @@ async def main():
     with open("video_input.txt", "w") as f: f.writelines(image_timeline)
     with open("audio_input.txt", "w") as f: f.writelines([f"file '{a}'\n" for a in audio_files])
 
-    # --- C. FFmpeg 运镜渲染引擎 (预先生成5秒平滑放大推镜头) ---
-    print("🎬 正在使用高级滤镜渲染 5秒 大盘缓慢推镜头效果...")
-    # 💡 慢速推镜头核心公式：用 zoompan 滤镜在指定时间内把焦距从 1.0 平滑递增到 1.35，原点设在最前面的4-5只ETF区域
+    # --- C. FFmpeg 运镜渲染引擎 (预先生成5秒平滑拉近镜头) ---
+    print("🎬 正在使用高级滤镜渲染 5秒 极速推镜头效果...")
+    # 💡 核心修改：z='min(zoom+0.02, 2.0)' 代表以 0.02 步长极速缩放到 2.0 倍 (2x 放大)
+    # y='ih*0.25-(ih*0.25/zoom)' 代表将镜头中心焦点垂直锁定在 25% 高度处（这正是前 4-5 只 ETF 的黄金中心位置）
     zoom_fps = 25
     zoom_frames = int(remain_zoom_time * zoom_fps)
     zoom_cmd = [
         "ffmpeg", "-y", "-loop", "1", "-i", "ss_main.png", 
-        "-vf", f"zoompan=z='min(zoom+0.0028,1.35)':x='iw/2-iw/2/zoom':y='ih*0.1':d={zoom_frames}:s=720x1280,format=yuv420p", 
+        "-vf", f"zoompan=z='min(zoom+0.02,2.0)':x='iw/2-(iw/2/zoom)':y='ih*0.25-(ih*0.25/zoom)':d={zoom_frames}:s=720x1280,format=yuv420p", 
         "-c:v", "libx264", "-r", str(zoom_fps), "-t", f"{remain_zoom_time:.3f}", "ss_main_zoomed.mp4"
     ]
     subprocess.run(zoom_cmd, check=True)
@@ -244,30 +242,15 @@ async def main():
     print("🎬 正在拼装最终带有动态前奏的分镜视频...")
     final_video = f"etf_report_{FILE_SUFFIX}.mp4"
     
-    # 这里的视频分镜序列包含了一个临时的 .mp4 运镜片段，需要用特殊的 concat 混合模式
-    # 为了保证绝对稳定，先用简易拼接生成无声完整版视频，再挂载音频
-    with open("video_concat_pure.txt", "w") as f:
-        f.write("file 'cover_image.png'\nduration 2.000\n")
-        f.write("file 'ss_main.png'\nduration 2.000\n")
-    
-    # 将图片序列和视频运镜混合在一起做高级组装
-    mix_video_cmd = [
-        "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "video_input.txt", 
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "25", "pure_video_output.mp4"
-    ]
-    # 注意：因为 video_input.txt 里提到了 ss_main_zoomed.mp4，concat 需要统一格式。
-    # 我们改用直接的 filter_complex 做更精细的组装，或者用分段拼接来防止编码不一致闪退：
-    
-    # 【更稳健的拼接策略：分段组装再合并】
-    # 1. 组装前面的封面和大盘静态
+    # 稳健拼接策略：分段组装再合并
     subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", "cover_image.png", "-t", "2", "-c:v", "libx264", "-r", "25", "-pix_fmt", "yuv420p", "p1.mp4"], check=True)
     subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", "ss_main.png", "-t", "2", "-c:v", "libx264", "-r", "25", "-pix_fmt", "yuv420p", "p2.mp4"], check=True)
-    # 2. 组装后面的所有K线及片尾
+    
     with open("video_backend.txt", "w") as f:
         f.writelines(image_timeline[3:])
     subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "video_backend.txt", "-c:v", "libx264", "-r", "25", "-pix_fmt", "yuv420p", "p4.mp4"], check=True)
     
-    # 3. 将 p1 + p2 + ss_main_zoomed.mp4 + p4 全体无缝串联
+    # 将 p1 + p2 + ss_main_zoomed.mp4 + p4 全体无缝串联
     with open("final_stitch.txt", "w") as f:
         f.write("file 'p1.mp4'\nfile 'p2.mp4'\nfile 'ss_main_zoomed.mp4'\nfile 'p4.mp4'\n")
     subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "final_stitch.txt", "-c:v", "copy", "pre_final_video.mp4"], check=True)
