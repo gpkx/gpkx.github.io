@@ -184,12 +184,12 @@ async def main():
     audio_files = ["final_intro.mp3"]
     image_timeline = []
 
-    # 1. 封面展示 2 秒
-    image_timeline.append("file 'cover_image.png'\nduration 2.000\n")
-    # 2. 监控大盘原始展示 2 秒
-    image_timeline.append("file 'ss_main.png'\nduration 2.000\n")
-    # 3. 剩余时间分给大盘动态放大推镜头 (最少5秒)
-    remain_zoom_time = intro_visual_total - 4.000
+    # 1. 封面展示 1.5 秒
+    image_timeline.append("file 'cover_image.png'\nduration 1.500\n")
+    # 2. 监控大盘原始展示 1.5 秒
+    image_timeline.append("file 'ss_main.png'\nduration 1.500\n")
+    # 3. 剩余时间分给大盘动态放大推镜头 (最少4秒)
+    remain_zoom_time = intro_visual_total - 3.000
     image_timeline.append(f"file 'ss_main_zoomed.mp4'\nduration {remain_zoom_time:.3f}\n")
 
     full_text = f"🔥 【{TIME_LABEL}量化雷达播报】\n\n"
