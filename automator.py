@@ -146,16 +146,16 @@ async def main():
 
         # --- 📸 3. TV图表 (120%放大 + 绝对居中裁切边缘) ---
         print("🌐 正在抓取完美比例 120% 中心对齐 K 线图...")
-        # 💡 横向拉伸魔法：scale(1.25, 1.05) 
-        # 第一个数值 1.25 代表横向拉伸 125%（专门把右边空白挤出去）
-        # 第二个数值 1.05 代表纵向仅放大 105%（刚好切掉上下的一点点白边，保留高度完好）
+        # 💡 终极微调：
+        # scale(1.40, 1.0) 代表宽度拉伸到 140%（彻底干掉右边空白），高度保持 100%（不产生垂直变形）
+        # translate(-12px, 5px) 代表左边维持 -12px 不动，顶端向下移动 5px（把 ETF 名称完全拉回视野内）
         clean_css = """
             .layout__area--top, .layout__area--left, .layout__area--right, .layout__area--bottom, [data-name='widgetbar'], #widgetbar, .widgetbar-wrap { display: none !important; } 
             .layout__area--center { 
                 position: fixed !important; top: 0 !important; left: 0 !important; 
                 width: 100vw !important; height: 100vh !important; z-index: 9999 !important; 
                 transform-origin: top left !important; 
-                transform: scale(1.25, 1.05) translate(-12px, -20px) !important; 
+                transform: scale(1.40, 1.0) translate(-12px, 5px) !important; 
             }
         """
         base_chart_url = TV_CHART_URL.rstrip('/')
