@@ -146,13 +146,12 @@ async def main():
 
         # --- 📸 3. TV图表 (120%放大 + 绝对居中裁切边缘) ---
         print("🌐 正在抓取完美比例 120% 中心对齐 K 线图...")
-        # 💡 transform-origin: center center 让图表以中心为基准放大 120%，四边均匀溢出并被安全裁切掉
+        # 💡 还原为“纯净原画”模式：只隐藏多余的菜单栏并铺满屏幕，不放大，不移动
         clean_css = """
             .layout__area--top, .layout__area--left, .layout__area--right, .layout__area--bottom, [data-name='widgetbar'], #widgetbar, .widgetbar-wrap { display: none !important; } 
             .layout__area--center { 
                 position: fixed !important; top: 0 !important; left: 0 !important; 
                 width: 100vw !important; height: 100vh !important; z-index: 9999 !important; 
-                transform: scale(1.2) !important; transform-origin: center center !important; 
             }
         """
         base_chart_url = TV_CHART_URL.rstrip('/')
