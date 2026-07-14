@@ -227,14 +227,16 @@ async def main():
 
     # --- C. FFmpeg 运镜渲染引擎 (精准左上角轨道推镜头) ---
     print("🎬 正在使用高级滤镜渲染 极速推镜头 定格效果...")
-    # 💡 核心运镜方程解析：
-    # z='min(1+(in/25), 3.0)'：in/25 代表每秒放大1倍。镜头会在前 2 秒内极速放大到 3.0 倍，后 3 秒死死定格！
-    # x='10*(zoom-1)' 和 y='105*(zoom-1)'：配合缩放的轨道方程。当放大到3倍时，X刚好锁定在 20 像素，Y锁定在 210 像素。完美卡住前5只ETF！
+    # 💡 核心修复：避开 FFmpeg 整数除法 Bug！
+    # z='min(zoom+0.04, 3.0)'：每帧固定放大 0.04 倍。25帧/秒 * 2秒 * 0.04 = 2.0，加上初始的1.0，刚好在第2秒时放大到 3 倍！
+    # 然后触发 min() 限制，剩下的3秒画面完美定格！
+    # x='10*(zoom-1)' 和 y='85*(zoom-1)'：伴随放大，镜头以像素级精度向左上角移动。
+    # 最终定格时，X偏移20像素，Y偏移170像素（完美避开顶部深色表头，让“科创芯片”直接顶在最上面）。
     zoom_fps = 25
     zoom_frames = int(remain_zoom_time * zoom_fps)
     zoom_cmd = [
         "ffmpeg", "-y", "-loop", "1", "-i", "ss_main.png", 
-        "-vf", f"zoompan=z='min(1+(in/25), 3.0)':x='10*(zoom-1)':y='105*(zoom-1)':d={zoom_frames}:s=720x1280,format=yuv420p", 
+        "-vf", f"zoompan=z='min(zoom+0.04,3.0)':x='10*(zoom-1)':y='85*(zoom-1)':d={zoom_frames}:s=720x1280,format=yuv420p", 
         "-c:v", "libx264", "-r", str(zoom_fps), "-t", f"{remain_zoom_time:.3f}", "ss_main_zoomed.mp4"
     ]
     subprocess.run(zoom_cmd, check=True)
