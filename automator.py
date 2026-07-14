@@ -12,6 +12,7 @@ import requests
 
 # 1. 基础配置
 TARGET_URL = "https://gpkx.github.io/"
+# 👇 已经更新为你最新的专属 TV 图表链接
 TV_CHART_URL = "https://cn.tradingview.com/chart/fxUqvHrk/" 
 TZ = pytz.timezone('Asia/Shanghai')
 NOW = datetime.now(TZ)
@@ -19,8 +20,8 @@ IS_MIDDAY = NOW.hour < 13
 TIME_LABEL = "午盘" if IS_MIDDAY else "收盘"
 FILE_SUFFIX = NOW.strftime("%Y%m%d_%H%M")
 
-# 2. 极简播报话术
-INTRO_TEXT = f"欢迎关注最新ETF量化跟踪。截至{TIME_LABEL}，来看核心板块最新读数。"
+# 2. 极简且彰显实力的合规播报话术 (解决40选4的表达)
+INTRO_TEXT = f"欢迎关注ETF跟踪。系统全天候监控四十余只核心标的，截至{TIME_LABEL}，为您复盘波动最剧烈的前四只ETF。"
 OUTRO_TEXT = "本内容不构成投资建议。"
 
 def get_tv_symbol(code):
@@ -50,7 +51,7 @@ async def safe_generate_tts(text, filename, retries=3):
             else: raise Exception(f"TTS 失败: {e}")
 
 async def main():
-    print(f"🚀 开始执行【高完播率动态版】工作流... {NOW}")
+    print(f"🚀 开始执行【极致纯净版】工作流... {NOW}")
     
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
@@ -68,9 +69,26 @@ async def main():
             
         page = await context.new_page()
 
-        # --- A. 抓取真实数据 ---
+        # --- A. 抓取真实数据 (并动态隐藏多余行) ---
         await page.goto(TARGET_URL, wait_until="networkidle")
         await page.wait_for_timeout(5000) 
+        
+        # 💡 黑科技：用 JS 找出前 4 只 ETF 之后的所有数据行，并强行将它们隐身
+        await page.evaluate("""
+            const rows = document.querySelectorAll('tr, .el-table__row, .row, li');
+            let dataCount = 0;
+            for(let i=0; i<rows.length; i++) {
+                let text = rows[i].innerText;
+                if(text && text.match(/\\b(5\\d{5}|1\\d{5})\\b/)) {
+                    dataCount++;
+                    // 把第5只及以后的ETF全部隐藏，保持网页背景不变，尺寸依然是720x1280
+                    if(dataCount > 4) {
+                        rows[i].style.display = 'none';
+                    }
+                }
+            }
+        """)
+        # 此时截取出来的全屏图，画面中就只剩前 4 只了，完美匹配“图三”的效果！
         await page.screenshot(path="ss_main.png")
         
         etf_list = []
@@ -86,7 +104,6 @@ async def main():
                     name = re.sub(r'\(.*?\)|>', '', lines[0]).strip()
                     pcts = [val for val in lines if '%' in val]
                     if pcts:
-                        # 智能取值：下午取全天(索引1)，上午取半天(索引0)
                         change = pcts[1] if not IS_MIDDAY and len(pcts) >= 2 else pcts[0]
                         if not any(e['code'] == code for e in etf_list):
                             etf_list.append({"name": name, "code": code, "change": change})
@@ -118,12 +135,13 @@ async def main():
         await page.wait_for_timeout(1000)
         await page.screenshot(path="cover_image.png")
 
-        # --- 🎨 2. 生成【片尾文字画】免责声明 ---
+        # --- 🎨 2. 生成【白色极简】免责声明 ---
+        # 💡 已将背景改为白色，标题改为深黑，正文改为深灰，视觉非常干净舒适
         disclaimer_html = """
         <!DOCTYPE html><html><head><meta charset="UTF-8"><style>
-            body { margin: 0; padding: 0; width: 720px; height: 1280px; background: #000000; display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: 'Microsoft YaHei', sans-serif; color: #888888; text-align: center; padding: 0 50px; box-sizing: border-box;}
-            h1 { color: #ffffff; font-size: 45px; margin-bottom: 30px;}
-            p { font-size: 28px; line-height: 1.6; }
+            body { margin: 0; padding: 0; width: 720px; height: 1280px; background: #ffffff; display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: 'Microsoft YaHei', sans-serif; text-align: center; padding: 0 50px; box-sizing: border-box;}
+            h1 { color: #1a1a1a; font-size: 45px; margin-bottom: 40px; font-weight: 900; letter-spacing: 2px;}
+            p { font-size: 28px; line-height: 1.8; color: #555555; font-weight: 500; }
         </style></head><body>
             <h1>免责声明</h1>
             <p>本视频内所有数据、图表及指标读数，<br>均基于特定量化模型客观记录生成。<br><br>不代表标的真实涨跌幅，<br>亦不构成任何买卖及投资建议。<br><br>市场有风险，投资需谨慎。</p>
@@ -133,8 +151,19 @@ async def main():
         await page.wait_for_timeout(1000)
         await page.screenshot(path="disclaimer.png")
 
-        # --- 📸 3. 分时段抓取图表 (上午只抓3h，下午只抓1D) ---
-        clean_css = ".layout__area--top, .layout__area--left, .layout__area--right, .layout__area--bottom, [data-name='widgetbar'], #widgetbar, .widgetbar-wrap { display: none !important; } .layout__area--center { position: fixed !important; top: 0 !important; left: 0 !important; width: 100vw !important; height: 100vh !important; z-index: 9999 !important; }"
+        # --- 📸 3. 分时段抓取图表 (终极去除图例版) ---
+        # 💡 魔法 CSS：增加了 [class*="legend"] 系列，彻底抹除左上角碍眼的文字，只留纯净 K 线
+        clean_css = """
+            .layout__area--top, .layout__area--left, .layout__area--right, .layout__area--bottom, 
+            [data-name='widgetbar'], #widgetbar, .widgetbar-wrap,
+            [class*="legend"], .pane-legend, .chart-widget__topbar { 
+                display: none !important; opacity: 0 !important; visibility: hidden !important; 
+            } 
+            .layout__area--center { 
+                position: fixed !important; top: 0 !important; left: 0 !important; 
+                width: 100vw !important; height: 100vh !important; z-index: 9999 !important; 
+            }
+        """
         base_chart_url = TV_CHART_URL.rstrip('/')
         
         target_interval = "180" if IS_MIDDAY else "1D"
@@ -159,7 +188,7 @@ async def main():
     image_timeline.append(f"file 'cover_image.png'\nduration {dur_intro:.3f}\n")
     audio_files.append("audio_intro.mp3")
 
-    full_text = f"🔥 【{TIME_LABEL}量化雷达播报】\n\n"
+    full_text = f"🔥 【{TIME_LABEL}量化雷达播报】\n\n系统全天候监控40余只核心ETF，当前异动最剧烈的4只如下：\n\n"
     transition_words = ["首先，", "其次，", "再看", "最后，"]
     
     for i, etf in enumerate(etf_list):
@@ -172,7 +201,6 @@ async def main():
         await asyncio.sleep(1)
         
         dur_etf = get_audio_duration(etf_audio)
-        # 匹配对应时段的唯一截图
         img_name = f"ss_etf_{i}_3h.png" if IS_MIDDAY else f"ss_etf_{i}_1d.png"
         image_timeline.append(f"file '{img_name}'\nduration {dur_etf:.3f}\n")
         audio_files.append(etf_audio)
@@ -183,17 +211,16 @@ async def main():
     image_timeline.append(f"file 'ss_main.png'\nduration {dur_outro:.3f}\n")
     audio_files.append("audio_outro.mp3")
 
-    # 🎯 核心修复：为最后 2 秒的文字免责声明画面，生成一段 2 秒的静音音频，彻底对齐音画，消除黑屏/空白
+    # 🎯 生成 2 秒静音，配合白色的文字免责声明画面
     subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", "2", "-q:a", "9", "-acodec", "libmp3lame", "silence.mp3"])
     image_timeline.append(f"file 'disclaimer.png'\nduration 2.000\n")
-    # 强制 ffmpeg 最后读取一帧防止无限延长
     image_timeline.append(f"file 'disclaimer.png'\n")
     audio_files.append("silence.mp3")
 
     with open("video_input.txt", "w") as f: f.writelines(image_timeline)
     with open("audio_input.txt", "w") as f: f.writelines([f"file '{a}'\n" for a in audio_files])
 
-    # --- C. 视频极速合成 (-shortest 参数斩断所有多余尾巴) ---
+    # --- C. 视频极速合成 ---
     final_video = f"etf_report_{FILE_SUFFIX}.mp4"
     if os.path.exists("bgm.mp3"):
         cmd = [
@@ -203,7 +230,7 @@ async def main():
             "-filter_complex", "[1:a]volume=1.0[a1];[2:a]volume=0.15[a2];[a1][a2]amix=inputs=2:duration=first:dropout_transition=2[a]", 
             "-map", "0:v", "-map", "[a]", 
             "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "25", "-c:a", "aac", "-b:a", "192k", 
-            "-shortest", final_video  # 🎯 确保视频在主音轨结束时立即掐断
+            "-shortest", final_video 
         ]
     else:
         cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "video_input.txt", "-f", "concat", "-safe", "0", "-i", "audio_input.txt", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "25", "-c:a", "aac", "-b:a", "192k", "-shortest", final_video]
