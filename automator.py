@@ -107,9 +107,11 @@ async def main():
             color = "#ff4d4f" if "+" in e['change'] else "#00e5ff" if "-" in e['change'] else "#ffffff"
             top3_html_blocks += f"<div style='background:rgba(255,255,255,0.1); padding:20px 40px; border-radius:15px; margin:15px 0; display:flex; justify-content:space-between; width:80%; font-size:38px;'><span style='font-weight:bold;'>TOP {i+1} {e['name']}</span><span style='color:{color}; font-weight:900;'>{e['change']}</span></div>"
 
+        # 💡 核心修复：添加了 html, body 联合选择器，强制全屏无缝隙，并将 html 背景设为深色 (#0f172a) 打底
         cover_html = f"""
         <!DOCTYPE html><html><head><meta charset="UTF-8"><style>
-            body {{ margin: 0; padding: 0; width: 720px; height: 1280px; background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: 'Microsoft YaHei', sans-serif; color: white; }}
+            html, body {{ margin: 0; padding: 0; width: 100vw; height: 100vh; overflow: hidden; background: #0f172a; box-sizing: border-box; }}
+            body {{ background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: 'Microsoft YaHei', sans-serif; color: white; }}
             .tag {{ background: #3b82f6; padding: 12px 35px; border-radius: 50px; font-size: 28px; font-weight: bold; margin-bottom: 50px; letter-spacing: 2px; }}
             .title {{ font-size: 70px; font-weight: 900; color: #fbbf24; text-align: center; margin-bottom: 60px; }}
         </style></head><body>
@@ -123,9 +125,11 @@ async def main():
         await page.screenshot(path="cover_image.png")
 
         # --- 🎨 2. 生成【白色极简】免责声明 ---
+        # 💡 核心修复：同样对 html 标签进行暴力铺满，强制纯白底色
         disclaimer_html = """
         <!DOCTYPE html><html><head><meta charset="UTF-8"><style>
-            body { margin: 0; padding: 0; width: 720px; height: 1280px; background: #ffffff; display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: 'Microsoft YaHei', sans-serif; color: #333333; text-align: center; padding: 0 50px; box-sizing: border-box;}
+            html, body { margin: 0; padding: 0; width: 100vw; height: 100vh; overflow: hidden; background: #ffffff; box-sizing: border-box; }
+            body { display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: 'Microsoft YaHei', sans-serif; color: #333333; text-align: center; padding: 0 50px; }
             h1 { color: #000000; font-size: 55px; margin-bottom: 40px; font-weight: 900; letter-spacing: 5px;}
             p { font-size: 32px; line-height: 1.8; font-weight: bold; }
             .footer { margin-top: 60px; font-size: 26px; color: #888888; border-top: 2px solid #eeeeee; padding-top: 30px; width: 80%;}
