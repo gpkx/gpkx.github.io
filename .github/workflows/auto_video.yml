@@ -2,7 +2,7 @@ name: Automated ETF Video Workflow
 
 on:
   schedule:
-    # 每天北京时间 11:50 (UTC 03:40)
+    # 每天北京时间 11:50 (UTC 03:50)
     - cron: '50 3 * * 1-5'
     # 每天北京时间 16:00 (UTC 08:00)
     - cron: '0 8 * * 1-5'
@@ -29,22 +29,18 @@ jobs:
         path: ~/.cache/ms-playwright
         key: ${{ runner.os }}-playwright-${{ hashFiles('requirements.txt') }}
 
-    - name: Setup FFmpeg
-      # 抛弃抽风的 apt-get，使用官方直连极速插件
-      uses: FedericoCarboni/setup-ffmpeg@v3
-
     - name: Install Python Dependencies
       run: |
         pip install -r requirements.txt
 
-    - name: Fix Network and Install Browsers
+    - name: Fix Network and Install Dependencies
       run: |
-        # 1. 强行把今天抽风的 azure 节点替换为全球主节点，根治卡死问题
+        # 1. 强行把抽风的 azure 节点替换为全球主节点，根治网络卡死问题
         sudo sed -i 's/azure.archive.ubuntu.com/archive.ubuntu.com/g' /etc/apt/sources.list
         sudo apt-get update
         
-        # 2. 提前光速安装中文字体（确保封面图和 TradingView 的中文完美显示）
-        sudo apt-get install -y fonts-wqy-zenhei fonts-wqy-microhei
+        # 2. 一次性从官方主节点极速安装 FFmpeg 视频引擎和中文字体
+        sudo apt-get install -y ffmpeg fonts-wqy-zenhei fonts-wqy-microhei
         
         # 3. 安装浏览器内核及其剩余依赖
         playwright install chromium --with-deps
