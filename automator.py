@@ -194,15 +194,16 @@ async def main():
 
         # --- 📸 3. TV图表 (120%放大 + 左上对齐暴力裁剪防毛边) ---
         print("🌐 正在抓取完美比例 120% 纯净 K 线图...")
-        # 💡 使用你提供的强权缩放裁剪参数：transform: scale(1.2) 和 transform-origin: top left
+        # 💡 使用 transform-origin: top right (右上角锚定)，让多余的20%向左下角溢出并被裁剪
         clean_css = """
             .layout__area--top, .layout__area--left, .layout__area--right, .layout__area--bottom, [data-name='widgetbar'], #widgetbar, .widgetbar-wrap { display: none !important; } 
             .layout__area--center { 
                 position: fixed !important; top: 0 !important; left: 0 !important; 
                 width: 100vw !important; height: 100vh !important; z-index: 9999 !important; 
-                transform: scale(1.2) !important; transform-origin: top left !important; 
+                transform: scale(1.2) !important; transform-origin: top right !important; 
             }
         """
+        
         base_chart_url = TV_CHART_URL.rstrip('/')
         target_interval = "180" if IS_MIDDAY else "1D"
         suffix = "3h" if IS_MIDDAY else "1d"
