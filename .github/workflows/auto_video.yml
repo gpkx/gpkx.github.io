@@ -46,8 +46,8 @@ jobs:
         playwright install chromium --with-deps
 
     - name: Run Automation Script
-      # 映射所有必须要用到的机密环境变量
       env:
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         TV_SESSION_ID: ${{ secrets.TV_SESSION_ID }}
