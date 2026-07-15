@@ -47,6 +47,7 @@ jobs:
 
     - name: Run Automation Script
       env:
+        # 🚨 这里是关键！必须把你的 AI 密钥映射进来，Python 脚本才能读到！
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
