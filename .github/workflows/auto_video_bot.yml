@@ -38,8 +38,8 @@ jobs:
 
     - name: Run Video Generation and Telegram Push
       env:
-        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         TV_SESSION_ID: ${{ secrets.TV_SESSION_ID }}
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       run: python main.py
