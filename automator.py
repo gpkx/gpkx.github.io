@@ -1,4 +1,5 @@
 import os
+import sys  # 👈 新增：用于强制终止程序，抛出错误状态码
 import json
 import asyncio
 import subprocess
@@ -156,7 +157,7 @@ async def main():
         except Exception as e:
             print(f"🛑 数据抓取失败，停止生成。({e})")
             await browser.close()
-            return 
+            sys.exit(1)  # 👈 核心修改：遇到异常强行终止，抛出错误码给 Github Actions 触发红灯
 
         # --- 🧠 呼叫 AI 导演生成今日专属剧本 ---
         print("🎭 正在呼叫 Gemini 生成今日动态情绪剧本...")
@@ -349,19 +350,31 @@ async def main():
         msg_title = f"📈 {TIME_LABEL}异动！触发{etf_list[0]['change']}！"
         xhs_text = f"📝 【备用库】\n\n{msg_title}\n\n数据记录，拒绝预测。"
 
-    requests.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", data={'chat_id': chat_id, 'text': xhs_text})
-    with open(final_video, 'rb') as vf:
-        requests.post(f"https://api.telegram.org/bot{bot_token}/sendVideo", data={'chat_id': chat_id, 'caption': f"🎬 {msg_title}"}, files={'video': vf}, timeout=120)
+    # 👈 核心修改：给每一项发往 Telegram 的请求，加上强制异常校验
+    try:
+        res_text = requests.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", data={'chat_id': chat_id, 'text': xhs_text})
+        res_text.raise_for_status()
+        
+        with open(final_video, 'rb') as vf:
+            res_video = requests.post(f"https://api.telegram.org/bot{bot_token}/sendVideo", data={'chat_id': chat_id, 'caption': f"🎬 {msg_title}"}, files={'video': vf}, timeout=120)
+            res_video.raise_for_status()
 
-    img_list = ["cover_image.png", "ss_main.png"] + [f"ss_etf_{i}_{suffix}.png" for i in range(len(etf_list))] + ["disclaimer.png"]
-    for i in range(0, len(img_list), 10):
-        chunk, media_group, files = img_list[i:i+10], [], {}
-        for idx, img in enumerate(chunk):
-            if os.path.exists(img):
-                files[f"f{idx}"] = open(img, "rb")
-                media_group.append({"type": "photo", "media": f"attach://f{idx}"})
-        requests.post(f"https://api.telegram.org/bot{bot_token}/sendMediaGroup", data={'chat_id': chat_id, 'media': json.dumps(media_group)}, files=files, timeout=60)
-        for f in files.values(): f.close()
+        img_list = ["cover_image.png", "ss_main.png"] + [f"ss_etf_{i}_{suffix}.png" for i in range(len(etf_list))] + ["disclaimer.png"]
+        for i in range(0, len(img_list), 10):
+            chunk, media_group, files = img_list[i:i+10], [], {}
+            for idx, img in enumerate(chunk):
+                if os.path.exists(img):
+                    files[f"f{idx}"] = open(img, "rb")
+                    media_group.append({"type": "photo", "media": f"attach://f{idx}"})
+            
+            res_media = requests.post(f"https://api.telegram.org/bot{bot_token}/sendMediaGroup", data={'chat_id': chat_id, 'media': json.dumps(media_group)}, files=files, timeout=60)
+            res_media.raise_for_status()
+            
+            for f in files.values(): f.close()
+            
+    except Exception as e:
+        print(f"🛑 推送至 Telegram 失败！原因: {e}")
+        sys.exit(1) # 遇到网络拦截或超时强行阻断返回红灯
 
 if __name__ == "__main__":
     asyncio.run(main())
