@@ -5,7 +5,7 @@ import asyncio
 import subprocess
 import random
 import re
-import time  # 👈 新增：加入物理休眠模块，对抗每分钟限流
+import time
 from datetime import datetime
 import pytz
 from playwright.async_api import async_playwright
@@ -58,12 +58,12 @@ def clean_for_tts(text):
     return text.strip()
 
 # ==========================================
-# 🔥 核心升级：AI 动态情绪与死磕抗限流引擎
+# 🔥 核心升级：替换为国内顶配 DeepSeek 引擎
 # ==========================================
-def call_gemini_director(etf_list, time_label):
-    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+def call_ai_director(etf_list, time_label):
+    api_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
     if not api_key:
-        print("❌ 致命错误：未检测到 GEMINI_API_KEY 环境变量！请检查 workflow 文件。")
+        print("❌ 致命错误：未检测到 DEEPSEEK_API_KEY！请检查 Github Secrets 拼写。")
         sys.exit(1)
 
     personas = [
@@ -84,63 +84,60 @@ def call_gemini_director(etf_list, time_label):
     今天你必须使用这种情绪状态和口吻来创作所有内容：{today_persona}
 
     【创作要求】：
-    1. 必须返回合法的 JSON 格式（绝对不要包含 ```json 等 markdown 标记）。
-    2. JSON 必须包含以下字段：
+    1. 必须返回合法的 JSON 格式。
+    2. JSON 必须精确包含以下4个字段：
        - "video_intro": "短视频开场白（50-80字）。必须完美契合今日情绪！上来直接用这股情绪抛出暴论或悬念，不要任何俗套问候。注意：英文全写成 E T F、A T R 方便TTS朗读，绝对不要有表情符号。"
-       - "etf_narratives": "一个数组（与输入数据长度一致）。用今日情绪对每一只ETF进行50字左右的犀利短评，结合它的涨跌幅，解释主力意图，拒绝平铺直叙。绝对不要重复用同样的句式，绝对不带表情符号。"
+       - "etf_narratives": 这是一个数组，必须包含{len(etf_list)}个字符串元素（与输入数据长度一致）。用今日情绪对每一只ETF进行50字左右的犀利短评，结合它的涨跌幅，解释主力意图，拒绝平铺直叙。绝对不要重复用同样的句式，绝对不带表情符号。
        - "social_title": "小红书/公众号的爆款标题（20字内，带emoji，极具煽动性或悬念，必须贴合今日设定的情绪）。"
        - "social_body": "一篇排版极其精美的小红书长文稿。大量运用自媒体emoji，分段清晰。用今日设定的情绪深度复盘今天的大盘，解释为什么咱们的专属量化指标（特别是ATR的涨跌异动）比看均线更准。文末必须加上强势引流钩子（例如：想白嫖我这套全天候监控信号的，评论区见）。"
     """
 
-    # 💡 精简模型池：只保留目前最坚挺、绝对不报 404 的两大核心模型
-    model_pool = ["gemini-1.5-flash", "gemini-2.0-flash"]
-
-    headers = {"Content-Type": "application/json"}
-    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+    url = "https://api.deepseek.com/chat/completions"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
     
-    api_host = "https://" + "generativelanguage.googleapis.com"
-    api_path = "/v1beta/models/"
+    payload = {
+        "model": "deepseek-chat",
+        "messages": [
+            {"role": "system", "content": "你是一个资深的A股量化交易专家和爆款自媒体运营大师。请严格按照用户要求输出纯净的 JSON 数据。"},
+            {"role": "user", "content": prompt}
+        ],
+        "response_format": {"type": "json_object"}  # 强制开启 JSON 约束模式，极其稳定
+    }
 
-    for model_name in model_pool:
-        url = f"{api_host}{api_path}{model_name}:generateContent?key={api_key}"
-        
-        # 💡 每个模型死磕 3 次，遇到 429 就强行休眠 60 秒等额度恢复
-        for attempt in range(3):
-            try:
-                print(f"🔄 正在尝试唤醒 AI 模型: {model_name} (第{attempt+1}次尝试)...")
-                response = requests.post(url, json=payload, headers=headers, timeout=60)
-                response.raise_for_status()
-                
-                raw_text = response.json()['candidates'][0]['content']['parts'][0]['text']
-                clean_text = re.sub(r"^```json\s*", "", raw_text, flags=re.IGNORECASE)
-                clean_text = re.sub(r"^```\s*", "", clean_text, flags=re.IGNORECASE)
-                clean_text = re.sub(r"\s*```$", "", clean_text, flags=re.IGNORECASE)
-                
-                result = json.loads(clean_text)
-                print(f"✅ 成功通过 {model_name} 输出深度情绪文案！")
-                return result
-                
-            except requests.exceptions.HTTPError as e:
-                if e.response.status_code == 429:
-                    print(f"⏳ 触发免费版每分钟限流 (429)！API 接口需要冷静，休眠 60 秒后原地重试...")
-                    time.sleep(60) # 👈 强制等一分钟，让 Google 后台重置你的请求次数
-                    continue
-                elif e.response.status_code == 404:
-                    print(f"⚠️ 模型 {model_name} 未被授权或找不到 (404)，放弃该模型，切换下一个...")
-                    break # 跳出当前模型的死磕循环，直接进入下一个模型
-                else:
-                    print(f"❌ 致命错误：AI 接口请求被拒绝 (状态码: {e.response.status_code})。")
-                    sys.exit(1)
-            except json.JSONDecodeError:
-                print(f"⚠️ 模型 {model_name} 未按要求输出 JSON 格式，休眠 5 秒后重试...")
-                time.sleep(5)
-                continue
-            except Exception as e:
-                print(f"⚠️ 模型 {model_name} 网络异常: {e}，休眠 5 秒后重试...")
-                time.sleep(5)
-                continue
+    last_error = ""
+    for attempt in range(3):
+        try:
+            print(f"🔄 正在呼叫 DeepSeek AI 引擎 (第{attempt+1}次尝试)...")
+            response = requests.post(url, json=payload, headers=headers, timeout=60)
+            response.raise_for_status()
+            
+            raw_text = response.json()['choices'][0]['message']['content']
+            
+            # 清洗头尾可能多余的标记
+            clean_text = re.sub(r"^```json\s*", "", raw_text, flags=re.IGNORECASE)
+            clean_text = re.sub(r"^```\s*", "", clean_text, flags=re.IGNORECASE)
+            clean_text = re.sub(r"\s*```$", "", clean_text, flags=re.IGNORECASE)
+            
+            result = json.loads(clean_text)
+            print(f"✅ 成功提取 DeepSeek 深度情绪文案！今天的人设是: {today_persona.split('】')[0]}】")
+            return result
+            
+        except requests.exceptions.HTTPError as e:
+            last_error = str(e)
+            print(f"⚠️ DeepSeek 接口请求拒绝 (状态码: {e.response.status_code})。")
+            time.sleep(3)
+        except json.JSONDecodeError:
+            print(f"⚠️ DeepSeek 未按规范输出 JSON，废弃重试...")
+            time.sleep(3)
+        except Exception as e:
+            last_error = str(e)
+            print(f"⚠️ DeepSeek 网络连接异常: {e}，重试中...")
+            time.sleep(3)
 
-    print(f"❌ 致命错误：所有 AI 模型与重试机制均已耗尽，请检查网络或稍后再试。")
+    print(f"❌ 致命错误：DeepSeek API 请求失败，最后报错: {last_error}")
     sys.exit(1)
 
 async def main():
@@ -203,7 +200,7 @@ async def main():
             sys.exit(1)
 
         print("🎭 正在调度 AI 专家生成今日动态情绪剧本...")
-        ai_script = call_gemini_director(etf_list, TIME_LABEL)
+        ai_script = call_ai_director(etf_list, TIME_LABEL) # 👈 这里已经无缝切换到了新接口
         
         global SELECTED_HOOK
         SELECTED_HOOK = ai_script['social_title']
@@ -388,11 +385,11 @@ async def main():
     msg_title = ai_script['social_title']
 
     try:
-        res_text = requests.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", data={'chat_id': chat_id, 'text': xhs_text})
+        res_text = requests.post(f"[https://api.telegram.org/bot](https://api.telegram.org/bot){bot_token}/sendMessage", data={'chat_id': chat_id, 'text': xhs_text})
         res_text.raise_for_status()
         
         with open(final_video, 'rb') as vf:
-            res_video = requests.post(f"https://api.telegram.org/bot{bot_token}/sendVideo", data={'chat_id': chat_id, 'caption': f"🎬 {msg_title}"}, files={'video': vf}, timeout=120)
+            res_video = requests.post(f"[https://api.telegram.org/bot](https://api.telegram.org/bot){bot_token}/sendVideo", data={'chat_id': chat_id, 'caption': f"🎬 {msg_title}"}, files={'video': vf}, timeout=120)
             res_video.raise_for_status()
 
         img_list = ["cover_image.png", "ss_main.png"] + [f"ss_etf_{i}_{suffix}.png" for i in range(len(etf_list))] + ["disclaimer.png"]
@@ -403,7 +400,7 @@ async def main():
                     files[f"f{idx}"] = open(img, "rb")
                     media_group.append({"type": "photo", "media": f"attach://f{idx}"})
             
-            res_media = requests.post(f"https://api.telegram.org/bot{bot_token}/sendMediaGroup", data={'chat_id': chat_id, 'media': json.dumps(media_group)}, files=files, timeout=60)
+            res_media = requests.post(f"[https://api.telegram.org/bot](https://api.telegram.org/bot){bot_token}/sendMediaGroup", data={'chat_id': chat_id, 'media': json.dumps(media_group)}, files=files, timeout=60)
             res_media.raise_for_status()
             
             for f in files.values(): f.close()
