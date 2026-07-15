@@ -5,7 +5,7 @@ import asyncio
 import subprocess
 import random
 import re
-import time  # 👈 新增：用于抗限流的休眠模块
+import time  # 👈 新增：加入物理休眠模块，对抗每分钟限流
 from datetime import datetime
 import pytz
 from playwright.async_api import async_playwright
@@ -58,7 +58,7 @@ def clean_for_tts(text):
     return text.strip()
 
 # ==========================================
-# 🔥 核心升级：AI 动态情绪与防断联轮询引擎 (抗 429 增强版)
+# 🔥 核心升级：AI 动态情绪与死磕抗限流引擎
 # ==========================================
 def call_gemini_director(etf_list, time_label):
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
@@ -92,64 +92,55 @@ def call_gemini_director(etf_list, time_label):
        - "social_body": "一篇排版极其精美的小红书长文稿。大量运用自媒体emoji，分段清晰。用今日设定的情绪深度复盘今天的大盘，解释为什么咱们的专属量化指标（特别是ATR的涨跌异动）比看均线更准。文末必须加上强势引流钩子（例如：想白嫖我这套全天候监控信号的，评论区见）。"
     """
 
-    # 优先使用目前可用性最广的模型
-    model_pool = [
-        "gemini-2.0-flash",
-        "gemini-2.0-flash-exp",
-        "gemini-1.5-flash",
-        "gemini-1.5-pro",
-        "gemini-pro"
-    ]
+    # 💡 精简模型池：只保留目前最坚挺、绝对不报 404 的两大核心模型
+    model_pool = ["gemini-1.5-flash", "gemini-2.0-flash"]
 
     headers = {"Content-Type": "application/json"}
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}]
-    }
-
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+    
     api_host = "https://" + "generativelanguage.googleapis.com"
     api_path = "/v1beta/models/"
 
-    last_error = ""
     for model_name in model_pool:
         url = f"{api_host}{api_path}{model_name}:generateContent?key={api_key}"
         
-        try:
-            print(f"🔄 正在尝试唤醒 AI 模型: {model_name} ...")
-            response = requests.post(url, json=payload, headers=headers, timeout=45)
-            response.raise_for_status()
-            
-            raw_text = response.json()['candidates'][0]['content']['parts'][0]['text']
-            
-            clean_text = re.sub(r"^```json\s*", "", raw_text, flags=re.IGNORECASE)
-            clean_text = re.sub(r"^```\s*", "", clean_text, flags=re.IGNORECASE)
-            clean_text = re.sub(r"\s*```$", "", clean_text, flags=re.IGNORECASE)
-            
-            result = json.loads(clean_text)
-            print(f"✅ 成功通过 {model_name} 输出深度好文案！")
-            return result
-            
-        except requests.exceptions.HTTPError as e:
-            last_error = str(e)
-            if e.response.status_code == 404:
-                print(f"⚠️ 模型 {model_name} 未被授权或找不到 (404)，自动切换下一个备胎...")
+        # 💡 每个模型死磕 3 次，遇到 429 就强行休眠 60 秒等额度恢复
+        for attempt in range(3):
+            try:
+                print(f"🔄 正在尝试唤醒 AI 模型: {model_name} (第{attempt+1}次尝试)...")
+                response = requests.post(url, json=payload, headers=headers, timeout=60)
+                response.raise_for_status()
+                
+                raw_text = response.json()['candidates'][0]['content']['parts'][0]['text']
+                clean_text = re.sub(r"^```json\s*", "", raw_text, flags=re.IGNORECASE)
+                clean_text = re.sub(r"^```\s*", "", clean_text, flags=re.IGNORECASE)
+                clean_text = re.sub(r"\s*```$", "", clean_text, flags=re.IGNORECASE)
+                
+                result = json.loads(clean_text)
+                print(f"✅ 成功通过 {model_name} 输出深度情绪文案！")
+                return result
+                
+            except requests.exceptions.HTTPError as e:
+                if e.response.status_code == 429:
+                    print(f"⏳ 触发免费版每分钟限流 (429)！API 接口需要冷静，休眠 60 秒后原地重试...")
+                    time.sleep(60) # 👈 强制等一分钟，让 Google 后台重置你的请求次数
+                    continue
+                elif e.response.status_code == 404:
+                    print(f"⚠️ 模型 {model_name} 未被授权或找不到 (404)，放弃该模型，切换下一个...")
+                    break # 跳出当前模型的死磕循环，直接进入下一个模型
+                else:
+                    print(f"❌ 致命错误：AI 接口请求被拒绝 (状态码: {e.response.status_code})。")
+                    sys.exit(1)
+            except json.JSONDecodeError:
+                print(f"⚠️ 模型 {model_name} 未按要求输出 JSON 格式，休眠 5 秒后重试...")
+                time.sleep(5)
                 continue
-            elif e.response.status_code == 429:
-                # 👈 核心修改：遇到 429 不再报错退出，而是休眠 15 秒躲过并发检测，继续重试
-                print(f"⏳ 触发免费版限流 (429)！可能是 GitHub 节点并发挤占，休眠 15 秒后继续硬刚...")
-                time.sleep(15)
+            except Exception as e:
+                print(f"⚠️ 模型 {model_name} 网络异常: {e}，休眠 5 秒后重试...")
+                time.sleep(5)
                 continue
-            else:
-                print(f"❌ 致命错误：AI 接口请求被拒绝 (状态码: {e.response.status_code})。")
-                sys.exit(1)
-        except json.JSONDecodeError:
-            print(f"⚠️ 模型 {model_name} 没按规矩输出 JSON，废弃重试...")
-            continue
-        except Exception as e:
-            last_error = str(e)
-            print(f"⚠️ 模型 {model_name} 网络或解析异常: {e}")
-            continue
 
-    print(f"❌ 致命错误：轮询池内所有 AI 模型全军覆没！最后一次报错: {last_error}")
+    print(f"❌ 致命错误：所有 AI 模型与重试机制均已耗尽，请检查网络或稍后再试。")
     sys.exit(1)
 
 async def main():
