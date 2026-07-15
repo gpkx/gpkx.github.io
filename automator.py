@@ -11,7 +11,7 @@ import edge_tts
 import requests
 
 # 1. 基础配置
-TARGET_URL = "https://gzjdqx.github.io/"  # 已自动同步至最新的生产部署地址
+TARGET_URL = "https://gzjdqx.github.io/" 
 TV_CHART_URL = "https://cn.tradingview.com/chart/fxUqvHrk/" 
 TZ = pytz.timezone('Asia/Shanghai')
 NOW = datetime.now(TZ)
@@ -19,8 +19,8 @@ IS_MIDDAY = NOW.hour < 13
 TIME_LABEL = "午盘" if IS_MIDDAY else "收盘"
 FILE_SUFFIX = NOW.strftime("%Y%m%d_%H%M")
 
-# 2. 备用极简口播话术（当 AI 接口失效时自动启用兜底）
-INTRO_TEXT = f"欢迎关注，我们全天候监控40多只大型ETF，每天对波动最大的4只进行复盘，需要更多ETF请联系我们。"
+# 兜底话术（断网或API超限时使用）
+INTRO_TEXT = f"欢迎关注，我们全天候监控40多只大型ETF，每天对波动最大的4只进行复盘。"
 OUTRO_TEXT = "本内容不构成投资建议。"
 
 def get_tv_symbol(code):
@@ -49,73 +49,72 @@ async def safe_generate_tts(text, filename, retries=3):
             if attempt < retries - 1: await asyncio.sleep(3) 
             else: raise Exception(f"TTS 失败: {e}")
 
-# 3. 语音文本物理清洗函数（确保 edge-tts 完美发音）
 def clean_for_tts(text):
-    if not text:
-        return ""
-    # 剔除所有 Emoji 绘文字
+    if not text: return ""
     text = re.sub(r'[\U00010000-\U0010ffff]', '', text)
-    # 剔除 Markdown 常用加粗、斜体及井号等符号
     text = text.replace('*', '').replace('_', '').replace('#', '').replace('`', '')
-    # 拆分英文简称，强制 edge-tts 逐字发音，避免怪异的英文发音
     text = re.sub(r'(?i)\betf\b', ' E T F ', text)
     text = re.sub(r'(?i)\batr\b', ' A T R ', text)
     text = re.sub(r'(?i)\ba股\b', ' A 股 ', text)
     return text.strip()
 
-# 4. 资深自媒体专家级 Gemini 文案生成器
-def call_gemini_expert(etf_list, time_label):
+# ==========================================
+# 🔥 核心升级：AI 动态情绪与人设引擎
+# ==========================================
+def call_gemini_director(etf_list, time_label):
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        print("⚠️ 未检测到 GEMINI_API_KEY 环境变量，将启用本地兜底模板。")
+        print("⚠️ 未检测到 GEMINI_API_KEY，启用本地兜底。")
         return None
 
-    # 构建极具自媒体网感、量化实战视角的深度 Prompt
-    prompt = f"""
-    你是一位拥有10年以上实战经验的A股ETF量化交易专家，同时也是一位精通小红书、微信公众号、抖音短视频的爆款自媒体运营大师。
-    请根据今天【{time_label}】的量化雷达监控数据，为我们创作一套高转化、高完播率、专业与吸睛并存的短视频口播文案和社交媒体（小红书/公众号）推文。
+    # 随机抽取今天的人设状态，让每天的视频充满惊喜和“人味儿”
+    personas = [
+        "【犀利毒舌风】恨铁不成钢，嘲讽散户无脑追高，强调量化纪律和ATR阈值的冷酷无情。",
+        "【老派教授风】语重心长，逻辑严密，像上课一样拆解今天ETF异动背后的宏观逻辑和主力意图。",
+        "【激情打血风】热血澎湃，看到指标突破极其兴奋，极力渲染主力大资金进场带来的爆发力。",
+        "【悬疑揭秘风】故作神秘，仿佛发现了主力不可告人的建仓底牌，一步步引导观众看懂数据背后的猫腻。"
+    ]
+    today_persona = random.choice(personas)
 
-    今日量化雷达异动数据如下：
+    prompt = f"""
+    你现在是一位在A股摸爬滚打了十几年的ETF量化交易老手，你的任务是完全掌控今天【{time_label}】的自媒体内容创作。
+    
+    今天的量化雷达异动数据如下：
     {json.dumps(etf_list, ensure_ascii=False, indent=2)}
 
-    【生成要求】：
-    1. 必须返回合法的 JSON 格式，且不要包含任何 markdown 标记（例如 ```json ），直接以标准 JSON 字符串返回。
-    2. JSON 结构必须包含以下字段：
-       - "video_intro": "视频黄金5秒开头吸睛口播。直接切入市场痛点、主力资金暗号或散户困境，拒绝任何废话问候。字数在60-80字以内，口语化，绝对不能含有任何表情符号，英文写成 E T F、A T R 方便TTS朗读。"
-       - "etf_narratives": 一个数组，数量与输入的etf_list一致。每个元素是针对对应ETF的专业短视频点评口播，要结合ATR涨跌异动，体现出主力的建仓或出货逻辑，字数控制在50-70字，口语化、含金量高，不含表情。
-       - "social_title": "小红书/公众号爆款标题（20字以内，富含爆款emoji，制造极度悬念或情绪共鸣，如：『别瞎买了！今天ETF异动榜暴露出主力致命底牌！🔥』）"
-       - "social_body": "排版极为精美的小红书/公众号复盘推文。要求：1. 使用丰富的自媒体情绪emoji；2. 逻辑清晰，分段留白极佳；3. 专业剖析今天榜单背后的行业逻辑，通俗易懂地普及为什么量化交易要紧盯ATR异动指标；4. 设计一个极其吸引人的引流钩子（例如：『想要我们全天候量化监控站地址的，直接在评论区扣 666 或者私信我！』）；5. 结尾附带相关垂直领域热门标签。"
+    🚨 【今日最高指示：人设强制加载】 🚨
+    今天你必须使用这种情绪状态和口吻来创作所有内容：{today_persona}
 
-    请立刻开始你的打磨，帮助我们实现高效粉丝裂变与变现！
+    【创作要求】：
+    1. 必须返回合法的 JSON 格式（绝对不要包含 ```json 等 markdown 标记）。
+    2. JSON 必须包含以下字段：
+       - "video_intro": "短视频开场白（50-80字）。必须完美契合今日情绪！上来直接用这股情绪抛出暴论或悬念，不要任何俗套问候。注意：英文全写成 E T F、A T R 方便TTS朗读，绝对不要有表情符号。"
+       - "etf_narratives": "一个数组（与输入数据长度一致）。用今日情绪对每一只ETF进行50字左右的犀利短评，结合它的涨跌幅，解释主力意图，拒绝平铺直叙。不带表情符号。"
+       - "social_title": "小红书/公众号的爆款标题（20字内，带emoji，极具煽动性或悬念，必须贴合今日设定的情绪）。"
+       - "social_body": "一篇排版极其精美的小红书长文稿。大量运用自媒体emoji，分段清晰。用今日设定的情绪深度复盘今天的大盘，解释为什么咱们的专属量化指标（特别是ATR的涨跌异动）比看均线更准。文末必须加上强势引流钩子（例如：想白嫖我这套全天候监控信号的，评论区见）。"
     """
 
     url = f"[https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=](https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=){api_key}"
     headers = {"Content-Type": "application/json"}
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "responseMimeType": "application/json"
-        }
+        "generationConfig": {"responseMimeType": "application/json"}
     }
 
     try:
-        response = requests.post(url, json=payload, headers=headers, timeout=30)
+        response = requests.post(url, json=payload, headers=headers, timeout=40)
         response.raise_for_status()
-        res_json = response.json()
-        raw_text = res_json['candidates'][0]['content']['parts'][0]['text']
-        
-        # 兼容处理可能携带的 markdown 标记
+        raw_text = response.json()['candidates'][0]['content']['parts'][0]['text']
         clean_text = re.sub(r"^```json\s*", "", raw_text, flags=re.IGNORECASE)
         clean_text = re.sub(r"^```\s*", "", clean_text, flags=re.IGNORECASE)
         clean_text = re.sub(r"\s*```$", "", clean_text, flags=re.IGNORECASE)
-        
         return json.loads(clean_text)
     except Exception as e:
-        print(f"⚠️ Gemini 专家接口调用或解析失败: {e}，将自动切换为安全兜底模式。")
+        print(f"⚠️ AI 导演罢工 ({e})，启用备用剧本。")
         return None
 
 async def main():
-    print(f"🚀 开始执行【极速推镜头定格+直接免责片尾】工作流... {NOW}")
+    print(f"🚀 开始执行【全自动AI情绪化复盘】工作流... {NOW}")
     
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
@@ -133,8 +132,7 @@ async def main():
             
         page = await context.new_page()
 
-        # --- A. 抓取真实数据并生成手机原生截图 ---
-        print("🔍 正在截取监控总览页面...")
+        print("🔍 正在截取前端真实数据总览...")
         await page.goto(TARGET_URL, wait_until="networkidle")
         await page.wait_for_timeout(5000) 
         await page.screenshot(path="ss_main.png")
@@ -146,7 +144,6 @@ async def main():
                 if len(etf_list) >= 4: break
                 text = re.sub(r'[\t\r\n]+', '\n', await row_locators.nth(i).inner_text())
                 lines = [line.strip() for line in text.split('\n') if line.strip()]
-                
                 code = next((re.search(r'\b(5\d{5}|1\d{5})\b', l).group(1) for l in lines if re.search(r'\b(5\d{5}|1\d{5})\b', l)), None)
                 if code:
                     name = re.sub(r'\(.*?\)|>', '', lines[0]).strip()
@@ -155,32 +152,25 @@ async def main():
                         change = pcts[1] if not IS_MIDDAY and len(pcts) >= 2 else pcts[0]
                         if not any(e['code'] == code for e in etf_list):
                             etf_list.append({"name": name, "code": code, "change": change})
-            if not etf_list:
-                raise Exception("未找到数据")
+            if not etf_list: raise Exception("未找到有效数据，大盘可能休市或数据源异常")
         except Exception as e:
             print(f"🛑 数据抓取失败，停止生成。({e})")
             await browser.close()
             return 
 
-        # --- 调用 AI 专家，定制今日爆款文案 ---
-        ai_expert_copy = call_gemini_expert(etf_list, TIME_LABEL)
+        # --- 🧠 呼叫 AI 导演生成今日专属剧本 ---
+        print("🎭 正在呼叫 Gemini 生成今日动态情绪剧本...")
+        ai_script = call_gemini_director(etf_list, TIME_LABEL)
 
-        # --- 🎨 1. 生成【动态前三名】高级封面 ---
         global SELECTED_HOOK
         top_etf = etf_list[0]
-        
-        # 如果 AI 成功生成，则提取 AI 的爆款标题作为封面钩子
-        if ai_expert_copy:
-            SELECTED_HOOK = ai_expert_copy['social_title']
-        else:
-            SELECTED_HOOK = f"📊 {TIME_LABEL}量化追踪！{top_etf['name']}指标数值达{top_etf['change']}，核心数据客观复盘！"
+        SELECTED_HOOK = ai_script['social_title'] if ai_script else f"📊 {TIME_LABEL}异动追踪！{top_etf['name']}核心数据复盘！"
         
         top3_html_blocks = ""
         for i, e in enumerate(etf_list[:3]):
             color = "#ff4d4f" if "+" in e['change'] else "#00e5ff" if "-" in e['change'] else "#ffffff"
             top3_html_blocks += f"<div style='background:rgba(255,255,255,0.1); padding:20px 40px; border-radius:15px; margin:15px 0; display:flex; justify-content:space-between; width:80%; font-size:38px;'><span style='font-weight:bold;'>TOP {i+1} {e['name']}</span><span style='color:{color}; font-weight:900;'>{e['change']}</span></div>"
 
-        # 💡 暴力溢出修复：给 body 设置 absolute 定位和 -5px 的四周负边距，强行撑大 10px，彻底把边缘白线推到屏幕外！
         cover_html = f"""
         <!DOCTYPE html><html><head><meta charset="UTF-8"><style>
             html {{ background: #0f172a; margin: 0; padding: 0; overflow: hidden; width: 100vw; height: 100vh; }}
@@ -195,7 +185,7 @@ async def main():
             .tag {{ background: #3b82f6; padding: 12px 35px; border-radius: 50px; font-size: 28px; font-weight: bold; margin-bottom: 50px; letter-spacing: 2px; }}
             .title {{ font-size: 55px; font-weight: 900; color: #fbbf24; text-align: center; margin-bottom: 60px; padding: 0 40px; line-height: 1.4; }}
         </style></head><body>
-            <div class="tag">{TIME_LABEL}量化异动榜</div>
+            <div class="tag">{TIME_LABEL}量化雷达</div>
             <div class="title">{SELECTED_HOOK}</div>
             {top3_html_blocks}
         </body></html>
@@ -204,16 +194,12 @@ async def main():
         await page.wait_for_timeout(1000)
         await page.screenshot(path="cover_image.png")
 
-        # --- 🎨 2. 生成【白色极简】免责声明 ---
-        # 💡 暴力溢出修复：纯白底色同样向外拉伸 10px，杜绝任何边缘漏色
         disclaimer_html = """
         <!DOCTYPE html><html><head><meta charset="UTF-8"><style>
             html { background: #ffffff; margin: 0; padding: 0; overflow: hidden; width: 100vw; height: 100vh; }
             body { 
                 position: absolute; top: -5px; left: -5px; 
-                width: calc(100vw + 10px); height: calc(100vh + 10px);
-                margin: 0; padding: 0; overflow: hidden; box-sizing: border-box;
-                background: #ffffff;
+                width: calc(100vw + 10px); height: calc(100vh + 10px); background: #ffffff;
                 display: flex; flex-direction: column; justify-content: center; align-items: center; 
                 font-family: 'Microsoft YaHei', sans-serif; color: #333333; text-align: center; padding: 0 50px; 
             }
@@ -230,8 +216,7 @@ async def main():
         await page.wait_for_timeout(1000)
         await page.screenshot(path="disclaimer.png")
 
-        # --- 📸 3. TV图表 (左上角对齐 + 纵向115% + 横向130%强力拉伸) ---
-        print("🌐 正在抓取 K 线图 (高度115%+宽度145%横向拉伸)...")
+        print("🌐 正在抓取真实带指标的 K 线图...")
         clean_css = """
             .layout__area--top, .layout__area--left, .layout__area--right, .layout__area--bottom, [data-name='widgetbar'], #widgetbar, .widgetbar-wrap { display: none !important; } 
             .layout__area--center { 
@@ -255,52 +240,34 @@ async def main():
 
         await browser.close()
 
-    # --- B. 语音合成与复合时间轴生成 ---
-    print("🎵 正在合成底层音频轨...")
-    
-    # 动态分配 AI 口播开场词
-    active_intro = clean_for_tts(ai_expert_copy['video_intro']) if ai_expert_copy else INTRO_TEXT
+    print("🎵 正在合成情绪化配音...")
+    active_intro = clean_for_tts(ai_script['video_intro']) if ai_script else INTRO_TEXT
     await safe_generate_tts(active_intro, "audio_intro.mp3")
     dur_intro = get_audio_duration("audio_intro.mp3")
     
-    # 动态前奏总时长要求：2秒封面 + 2秒大盘静止 + 5秒放大推镜头 = 9秒
-    # 若 AI 开场白较长，则自动自适应拉长推镜头总时间，保证声画同步
     intro_visual_total = max(9.000, dur_intro)
     if dur_intro < intro_visual_total:
-        silence_pad = intro_visual_total - dur_intro
-        subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", str(silence_pad), "intro_pad.mp3"])
-        with open("intro_audio_list.txt", "w") as f:
-            f.write("file 'audio_intro.mp3'\nfile 'intro_pad.mp3'\n")
+        subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", str(intro_visual_total - dur_intro), "intro_pad.mp3"])
+        with open("intro_audio_list.txt", "w") as f: f.write("file 'audio_intro.mp3'\nfile 'intro_pad.mp3'\n")
         subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "intro_audio_list.txt", "-c", "copy", "final_intro.mp3"])
     else:
         subprocess.run(["ffmpeg", "-y", "-i", "audio_intro.mp3", "-c", "copy", "final_intro.mp3"])
         intro_visual_total = dur_intro
 
     audio_files = ["final_intro.mp3"]
-    image_timeline = []
-
-    # 1. 封面展示 1.5 秒
-    image_timeline.append("file 'cover_image.png'\nduration 1.500\n")
-    # 2. 监控大盘原始展示 1.5 秒
-    image_timeline.append("file 'ss_main.png'\nduration 1.500\n")
-    # 3. 剩余时间分给大盘动态放大推镜头
+    image_timeline = [
+        "file 'cover_image.png'\nduration 1.500\n",
+        "file 'ss_main.png'\nduration 1.500\n"
+    ]
     remain_zoom_time = intro_visual_total - 3.000
     image_timeline.append(f"file 'ss_main_zoomed.mp4'\nduration {remain_zoom_time:.3f}\n")
 
-    full_text = f"🔥 【{TIME_LABEL}量化雷达播报】\n\n"
-    transition_words = ["首先，", "其次，", "再看", "最后，"]
-    
-    # 【ETF 正片分镜】
     for i, etf in enumerate(etf_list):
-        # 动态组装 AI 深度点评，无 AI 时自动降级为标准量化播报
-        if ai_expert_copy and i < len(ai_expert_copy['etf_narratives']):
-            etf_text = clean_for_tts(ai_expert_copy['etf_narratives'][i])
+        if ai_script and i < len(ai_script['etf_narratives']):
+            etf_text = clean_for_tts(ai_script['etf_narratives'][i])
         else:
-            readable_val = format_quant_voice(etf['change'])
-            etf_text = f"{transition_words[i]}{etf['name']}，{readable_val}。"
+            etf_text = f"接着看{etf['name']}，{format_quant_voice(etf['change'])}。"
             
-        full_text += f"🔹 {etf['name']} 👉 {etf['change']}\n"
-        
         etf_audio = f"audio_etf_{i}.mp3"
         await safe_generate_tts(etf_text, etf_audio)
         await asyncio.sleep(1)
@@ -310,156 +277,83 @@ async def main():
         image_timeline.append(f"file '{img_name}'\nduration {dur_etf:.3f}\n")
         audio_files.append(etf_audio)
 
-    # 【片尾分镜：直接显示免责声明】
     await safe_generate_tts(OUTRO_TEXT, "audio_outro.mp3")
     dur_outro = get_audio_duration("audio_outro.mp3")
     image_timeline.append(f"file 'disclaimer.png'\nduration {dur_outro:.3f}\n")
     audio_files.append("audio_outro.mp3")
-
-    # 免责声明底部的静音留白2秒
     subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", "2", "silence_end.mp3"])
-    image_timeline.append(f"file 'disclaimer.png'\nduration 2.000\n")
-    image_timeline.append(f"file 'disclaimer.png'\n")
+    image_timeline.extend([f"file 'disclaimer.png'\nduration 2.000\n", "file 'disclaimer.png'\n"])
     audio_files.append("silence_end.mp3")
 
     with open("video_input.txt", "w") as f: f.writelines(image_timeline)
     with open("audio_input.txt", "w") as f: f.writelines([f"file '{a}'\n" for a in audio_files])
 
-    # --- C. Python 物理引擎运镜 (绝对生效：大字号+极速垂直摇摄版) ---
-    print("🎬 正在使用 Python 物理引擎渲染运镜 (计算每一帧轨迹)...")
+    print("🎬 正在使用 Python 物理引擎渲染运镜 (大字号+极速垂直摇摄版)...")
     from PIL import Image
     import shutil
-
-    zoom_fps = 25
+    zoom_fps, frames_dir = 25, "temp_zoom_frames"
     zoom_frames = int(remain_zoom_time * zoom_fps)
-    frames_dir = "temp_zoom_frames"
-    
-    if os.path.exists(frames_dir): 
-        shutil.rmtree(frames_dir)
+    if os.path.exists(frames_dir): shutil.rmtree(frames_dir)
     os.makedirs(frames_dir)
 
     img = Image.open("ss_main.png")
-    w, h = img.size  # 720x1280
-
-    # 特写画框的缩放比例从 3.3 提升到 4.0，文字会变得更大、更清晰
-    target_w = int(w / 5.0)
-    target_h = int(h / 5.0)
+    w, h = img.size
+    target_w, target_h = int(w / 5.0), int(h / 5.0)
 
     for i in range(zoom_frames):
         if i <= 30:
-            # 阶段1 (前1.2秒): 极速向左上角推进
             progress = i / 30.0
             ease_progress = 1 - (1 - progress) ** 3
-            
             current_w = int(w - (w - target_w) * ease_progress)
             current_h = int(h - (h - target_h) * ease_progress)
-            current_x = 0
-            # Y轴初始定位微调为 165，确保 4.0 倍大字模式下第一行不会被切到头
-            current_y = int(165 * ease_progress) 
+            current_x, current_y = 0, int(165 * ease_progress) 
         else:
-            # 阶段2 (后续时间): 保持 4.0 倍巨大特写，镜头更快速地向下扫视
-            current_w = target_w
-            current_h = target_h
-            current_x = 0
+            current_w, current_h, current_x = target_w, target_h, 0
             pan_progress = (i - 30) / (zoom_frames - 30)
-            
-            # 将扫描的纵向像素从 220 暴增到 380！
-            # 同样的秒数内，镜头移动的距离更长，视觉上的下移速度会明显变快，能看清更多只ETF的名字
             current_y = int(165 + (420 * pan_progress))
         
-        # 精确裁剪当前帧并拉伸
         box = (current_x, current_y, current_x + current_w, current_y + current_h)
-        frame = img.crop(box).resize((w, h), Image.Resampling.LANCZOS)
-        
-        # 包含 RGBA 转 RGB 修复，彻底解决之前的报错 Bug
-        frame = frame.convert('RGB')
+        frame = img.crop(box).resize((w, h), Image.Resampling.LANCZOS).convert('RGB')
         frame.save(f"{frames_dir}/frame_{i:04d}.jpg", quality=95)
 
-    print("🎬 序列帧计算完毕，正在合成为丝滑视频...")
-    zoom_cmd = [
-        "ffmpeg", "-y", "-framerate", str(zoom_fps), "-i", f"{frames_dir}/frame_%04d.jpg",
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(zoom_fps), "ss_main_zoomed.mp4"
-    ]
-    subprocess.run(zoom_cmd, check=True)
+    subprocess.run(["ffmpeg", "-y", "-framerate", str(zoom_fps), "-i", f"{frames_dir}/frame_%04d.jpg", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(zoom_fps), "ss_main_zoomed.mp4"], check=True)
     shutil.rmtree(frames_dir)
 
-    # --- D. 视频最终多轨合成 ---
     print("🎬 正在拼装最终带有动态前奏的分镜视频...")
     final_video = f"etf_report_{FILE_SUFFIX}.mp4"
-    
-    # 稳健拼接策略：分段组装再合并
     subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", "cover_image.png", "-t", "2", "-c:v", "libx264", "-r", "25", "-pix_fmt", "yuv420p", "p1.mp4"], check=True)
     subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", "ss_main.png", "-t", "2", "-c:v", "libx264", "-r", "25", "-pix_fmt", "yuv420p", "p2.mp4"], check=True)
     
-    with open("video_backend.txt", "w") as f:
-        f.writelines(image_timeline[3:])
+    with open("video_backend.txt", "w") as f: f.writelines(image_timeline[3:])
     subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "video_backend.txt", "-c:v", "libx264", "-r", "25", "-pix_fmt", "yuv420p", "p4.mp4"], check=True)
     
-    # 将 p1 + p2 + ss_main_zoomed.mp4 + p4 全体无缝串联
-    with open("final_stitch.txt", "w") as f:
-        f.write("file 'p1.mp4'\nfile 'p2.mp4'\nfile 'ss_main_zoomed.mp4'\nfile 'p4.mp4'\n")
+    with open("final_stitch.txt", "w") as f: f.write("file 'p1.mp4'\nfile 'p2.mp4'\nfile 'ss_main_zoomed.mp4'\nfile 'p4.mp4'\n")
     subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "final_stitch.txt", "-c:v", "copy", "pre_final_video.mp4"], check=True)
 
-    # 4. 挂载混合了 BGM 的音频轨
     if os.path.exists("bgm.mp3"):
-        cmd = [
-            "ffmpeg", "-y", "-i", "pre_final_video.mp4", 
-            "-f", "concat", "-safe", "0", "-i", "audio_input.txt", 
-            "-stream_loop", "-1", "-i", "bgm.mp3", 
-            "-filter_complex", "[1:a]volume=1.0[a1];[2:a]volume=0.15[a2];[a1][a2]amix=inputs=2:duration=first:dropout_transition=2[a]", 
-            "-map", "0:v", "-map", "[a]", 
-            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", final_video  
-        ]
+        subprocess.run(["ffmpeg", "-y", "-i", "pre_final_video.mp4", "-f", "concat", "-safe", "0", "-i", "audio_input.txt", "-stream_loop", "-1", "-i", "bgm.mp3", "-filter_complex", "[1:a]volume=1.0[a1];[2:a]volume=0.15[a2];[a1][a2]amix=inputs=2:duration=first:dropout_transition=2[a]", "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", final_video], check=True)
     else:
-        cmd = [
-            "ffmpeg", "-y", "-i", "pre_final_video.mp4", 
-            "-f", "concat", "-safe", "0", "-i", "audio_input.txt", 
-            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", final_video
-        ]
+        subprocess.run(["ffmpeg", "-y", "-i", "pre_final_video.mp4", "-f", "concat", "-safe", "0", "-i", "audio_input.txt", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", final_video], check=True)
     
-    subprocess.run(cmd, check=True)
-    
-    # --- E. 清理临时分段视频 ---
     for tmp in ["p1.mp4", "p2.mp4", "p4.mp4", "ss_main_zoomed.mp4", "pre_final_video.mp4"]:
         if os.path.exists(tmp): os.remove(tmp)
         
-    # --- F. 推送 Telegram 全平台素材 ---
     print("✈️ 正在推送到 Telegram 接收端...")
     bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
     chat_id = os.getenv('TELEGRAM_CHAT_ID')
     
-    # 构建高流量推送文本
-    if ai_expert_copy:
-        xhs_text = (
-            f"📝 【AI 深度打磨 · 自媒体爆款发布素材】\n\n"
-            f"【小红书/公众号标题】\n"
-            f"💡 {ai_expert_copy['social_title']}\n\n"
-            f"【正文推文】\n"
-            f"{ai_expert_copy['social_body']}\n\n"
-            f"--- 视频口播文本备份 ---\n"
-            f"开场白：{ai_expert_copy['video_intro']}\n"
-        )
-        msg_title = ai_expert_copy['social_title']
+    if ai_script:
+        xhs_text = f"📝 【一键直发 · 爆款推文库】\n\n💡 {ai_script['social_title']}\n\n{ai_script['social_body']}\n\n--- 🎬 视频文案备份 ---\n{ai_script['video_intro']}"
+        msg_title = ai_script['social_title']
     else:
-        msg_title = f"📈 {TIME_LABEL}异动！{etf_list[0]['name']}触发{etf_list[0]['change']}！"
-        xhs_text = (
-            f"📝 【自媒体原始素材（AI生成失败备用）】\n\n"
-            f"【标题】{msg_title}\n\n"
-            f"【正文】\n{full_text}\n"
-            f"💡 本文数据为特定策略指标，纯数据记录，拒绝主观预测。\n\n"
-            f"#ETF #量化交易 #A股复盘 #{etf_list[0]['name']}"
-        )
+        msg_title = f"📈 {TIME_LABEL}异动！触发{etf_list[0]['change']}！"
+        xhs_text = f"📝 【备用库】\n\n{msg_title}\n\n数据记录，拒绝预测。"
 
     requests.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", data={'chat_id': chat_id, 'text': xhs_text})
-
     with open(final_video, 'rb') as vf:
         requests.post(f"https://api.telegram.org/bot{bot_token}/sendVideo", data={'chat_id': chat_id, 'caption': f"🎬 {msg_title}"}, files={'video': vf}, timeout=120)
 
-    img_list = ["cover_image.png", "ss_main.png"]
-    for i in range(len(etf_list)):
-        img_list.append(f"ss_etf_{i}_{suffix}.png")
-    img_list.append("disclaimer.png")
-        
+    img_list = ["cover_image.png", "ss_main.png"] + [f"ss_etf_{i}_{suffix}.png" for i in range(len(etf_list))] + ["disclaimer.png"]
     for i in range(0, len(img_list), 10):
         chunk, media_group, files = img_list[i:i+10], [], {}
         for idx, img in enumerate(chunk):
