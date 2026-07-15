@@ -29,8 +29,9 @@ def get_tv_symbol(code):
 def format_quant_voice(val_str):
     try:
         val = float(val_str.replace('%', '').replace('+', ''))
-        if val > 0: return f"A T R涨幅为{abs(val)}%"
-        elif val < 0: return f"A T R跌幅为{abs(val)}%"
+        # 遵循口语化指令：ATR涨了/跌了
+        if val > 0: return f"A T R涨了{abs(val)}%"
+        elif val < 0: return f"A T R跌了{abs(val)}%"
         return "A T R在零轴附近"
     except:
         return "无有效读数"
@@ -58,41 +59,38 @@ def clean_for_tts(text):
     return text.strip()
 
 # ==========================================
-# 🔥 核心升级：替换为国内顶配 DeepSeek 引擎
+# 🔥 核心升级：AI 全能导演中枢 (编剧 + 视觉前端 + 摄像运镜)
 # ==========================================
 def call_ai_director(etf_list, time_label):
     api_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
     if not api_key:
-        print("❌ 致命错误：未检测到 DEEPSEEK_API_KEY！请检查 Github Secrets 拼写。")
+        print("❌ 致命错误：未检测到 DEEPSEEK_API_KEY！请检查 Github Secrets。")
         sys.exit(1)
 
-    personas = [
-        "【犀利毒舌风】恨铁不成钢，嘲讽散户无脑追高，强调量化纪律和ATR阈值的冷酷无情。",
-        "【老派教授风】语重心长，逻辑严密，像上课一样拆解今天ETF异动背后的宏观逻辑和主力意图。",
-        "【激情打血风】热血澎湃，看到指标突破极其兴奋，极力渲染主力大资金进场带来的爆发力。",
-        "【悬疑揭秘风】故作神秘，仿佛发现了主力不可告人的建仓底牌，一步步引导观众看懂数据背后的猫腻。"
-    ]
-    today_persona = random.choice(personas)
-
     prompt = f"""
-    你现在是一位在A股摸爬滚打了十几年的ETF量化交易老手，你的任务是完全掌控今天【{time_label}】的自媒体内容创作。
+    你现在是顶级的A股量化交易专家兼爆款自媒体运营大师。你的任务是完全自主掌控今天【{time_label}】的短视频脚本、大盘运镜规划以及 1920x1080 宽屏电脑封面的设计。作品必须科学、客观、极具观赏性，能引起观众共鸣。
     
-    今天的量化雷达异动数据如下：
+    【今日核心触发数据（绝对事实，不可篡改）】：
     {json.dumps(etf_list, ensure_ascii=False, indent=2)}
 
-    🚨 【今日最高指示：人设强制加载】 🚨
-    今天你必须使用这种情绪状态和口吻来创作所有内容：{today_persona}
+    🚨 【最高指令：客观数据与绝对服从】 🚨
+    1. 你引用的 ETF 名称和百分比数值，必须 100% 对应上表。
+    2. JSON中 `change` 字段是独家【ATR异动指标】。正数代表向上异动，负数代表向下异动。
+    3. 严禁在文案里编造5日均线、MACD、KDJ等垃圾指标！你的分析必须客观、科学，以数据为准绳。
 
-    【创作要求】：
-    1. 必须返回合法的 JSON 格式。
-    2. JSON 必须精确包含以下4个字段：
-       - "video_intro": "短视频开场白（50-80字）。必须完美契合今日情绪！上来直接用这股情绪抛出暴论或悬念，不要任何俗套问候。注意：英文全写成 E T F、A T R 方便TTS朗读，绝对不要有表情符号。"
-       - "etf_narratives": 这是一个数组，必须包含{len(etf_list)}个字符串元素（与输入数据长度一致）。用今日情绪对每一只ETF进行50字左右的犀利短评，结合它的涨跌幅，解释主力意图，拒绝平铺直叙。绝对不要重复用同样的句式，绝对不带表情符号。
-       - "social_title": "小红书/公众号的爆款标题（20字内，带emoji，极具煽动性或悬念，必须贴合今日设定的情绪）。"
-       - "social_body": "一篇排版极其精美的小红书长文稿。大量运用自媒体emoji，分段清晰。用今日设定的情绪深度复盘今天的大盘，解释为什么咱们的专属量化指标（特别是ATR的涨跌异动）比看均线更准。文末必须加上强势引流钩子（例如：想白嫖我这套全天候监控信号的，评论区见）。"
+    【输出要求】：必须返回合法的 JSON，精确包含以下 6 个字段：
+    - "video_intro": 短视频开场口播（50-80字）。一针见血，点出榜首数据和今日交易情绪。英文写 E T F、A T R，无表情符号。
+    - "etf_narratives": 数组，包含{len(etf_list)}个元素的短评。结合读数分析资金动作，客观犀利，无表情符号。
+    - "social_title": 小红书/公众号爆款标题（20字内，带emoji）。
+    - "social_body": 排版精美的推文正文。多用emoji，复盘真实数据。文末引流：想白嫖全天候量化信号，评论区见。
+    - "camera_effect": 你作为导演，根据今天的大盘情绪自主选择一个开场运镜特效，必须是以下四个之一："zoom_in"（缓慢推进放大，适合强调和暴涨）、"zoom_out"（缓慢拉远，适合全局观和暴跌）、"pan_left"（向左平移，适合震荡）、"pan_right"（向右平移，适合趋势延续）。
+    - "cover_html": 这是一段完整的 HTML5+CSS 代码字符串。
+         * 尺寸：适配 1920x1080 电脑宽屏。
+         * 风格：你完全自由发挥！可以根据今天的数据情况设计（比如：大涨用热血赤红、大跌用深渊冷蓝、高端极简黑金等）。
+         * 内容：包含【{time_label}量化雷达】大标题，以及极具视觉冲击力的前三名ETF名称和读数排版。
+         * 限制：纯代码实现，不可引入外部网络图片。
     """
 
-    # 💡 物理阻断法：防止 DeepSeek URL 也被自动加括号
     ds_host = "https://" + "api.deepseek.com"
     url = f"{ds_host}/chat/completions"
     
@@ -104,17 +102,18 @@ def call_ai_director(etf_list, time_label):
     payload = {
         "model": "deepseek-chat",
         "messages": [
-            {"role": "system", "content": "你是一个资深的A股量化交易专家和爆款自媒体运营大师。请严格按照用户要求输出纯净的 JSON 数据。"},
+            {"role": "system", "content": "你是量化专家兼视觉导演。你的输出必须是纯粹的 JSON 格式，且绝对客观不捏造指标。"},
             {"role": "user", "content": prompt}
         ],
-        "response_format": {"type": "json_object"} 
+        "response_format": {"type": "json_object"},
+        "temperature": 0.6  # 给予 AI 一定的创作自由度来设计视觉，但限制其乱编数据
     }
 
     last_error = ""
     for attempt in range(3):
         try:
-            print(f"🔄 正在呼叫 DeepSeek AI 引擎 (第{attempt+1}次尝试)...")
-            response = requests.post(url, json=payload, headers=headers, timeout=60)
+            print(f"🔄 正在呼叫 DeepSeek 全能导演引擎 (第{attempt+1}次尝试)...")
+            response = requests.post(url, json=payload, headers=headers, timeout=90)
             response.raise_for_status()
             
             raw_text = response.json()['choices'][0]['message']['content']
@@ -124,7 +123,7 @@ def call_ai_director(etf_list, time_label):
             clean_text = re.sub(r"\s*```$", "", clean_text, flags=re.IGNORECASE)
             
             result = json.loads(clean_text)
-            print(f"✅ 成功提取 DeepSeek 深度情绪文案！今天的人设是: {today_persona.split('】')[0]}】")
+            print(f"✅ DeepSeek 创意设计完成！AI 选定的运镜特效为: {result.get('camera_effect', 'zoom_in')}")
             return result
             
         except requests.exceptions.HTTPError as e:
@@ -143,13 +142,15 @@ def call_ai_director(etf_list, time_label):
     sys.exit(1)
 
 async def main():
-    print(f"🚀 开始执行【全自动AI情绪化复盘】工作流... {NOW}")
+    print(f"🚀 开始执行【全自动AI宽屏重构版】工作流... {NOW}")
     
     async with async_playwright() as p:
+        # 🚨 宽屏核心改造：强制切换为 1920x1080 的电脑网页视口
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(
-            viewport={'width': 720, 'height': 1280}, is_mobile=True,
-            user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 Safari/604.1"
+            viewport={'width': 1920, 'height': 1080}, 
+            is_mobile=False,
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         )
         
         tv_session = os.getenv('TV_SESSION_ID', '').strip()
@@ -161,7 +162,7 @@ async def main():
             
         page = await context.new_page()
 
-        print("🔍 正在截取前端真实数据总览并提取核心指标...")
+        print("🔍 正在截取 1920x1080 宽屏数据总览...")
         try:
             await page.goto(TARGET_URL, wait_until="domcontentloaded")
             data_loaded = False
@@ -177,7 +178,8 @@ async def main():
                 await browser.close()
                 sys.exit(1)
 
-            await page.wait_for_timeout(1000)
+            # 宽屏需要多一点时间确保全屏渲染
+            await page.wait_for_timeout(2000)
             await page.screenshot(path="ss_main.png")
             
             etf_list = []
@@ -201,52 +203,30 @@ async def main():
             await browser.close()
             sys.exit(1)
 
-        print("🎭 正在调度 AI 专家生成今日动态情绪剧本...")
+        print("🎭 正在调度 AI 专家进行自由创作...")
         ai_script = call_ai_director(etf_list, TIME_LABEL)
         
         global SELECTED_HOOK
         SELECTED_HOOK = ai_script['social_title']
         
-        top3_html_blocks = ""
-        for i, e in enumerate(etf_list[:3]):
-            color = "#ff4d4f" if "+" in e['change'] else "#00e5ff" if "-" in e['change'] else "#ffffff"
-            top3_html_blocks += f"<div style='background:rgba(255,255,255,0.1); padding:20px 40px; border-radius:15px; margin:15px 0; display:flex; justify-content:space-between; width:80%; font-size:38px;'><span style='font-weight:bold;'>TOP {i+1} {e['name']}</span><span style='color:{color}; font-weight:900;'>{e['change']}</span></div>"
-
-        cover_html = f"""
-        <!DOCTYPE html><html><head><meta charset="UTF-8"><style>
-            html {{ background: #0f172a; margin: 0; padding: 0; overflow: hidden; width: 100vw; height: 100vh; }}
-            body {{ 
-                position: absolute; top: -5px; left: -5px; 
-                width: calc(100vw + 10px); height: calc(100vh + 10px);
-                margin: 0; padding: 0; overflow: hidden; box-sizing: border-box;
-                background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); 
-                display: flex; flex-direction: column; justify-content: center; align-items: center; 
-                font-family: 'Microsoft YaHei', sans-serif; color: white; 
-            }}
-            .tag {{ background: #3b82f6; padding: 12px 35px; border-radius: 50px; font-size: 28px; font-weight: bold; margin-bottom: 50px; letter-spacing: 2px; }}
-            .title {{ font-size: 55px; font-weight: 900; color: #fbbf24; text-align: center; margin-bottom: 60px; padding: 0 40px; line-height: 1.4; }}
-        </style></head><body>
-            <div class="tag">{TIME_LABEL}量化雷达</div>
-            <div class="title">{SELECTED_HOOK}</div>
-            {top3_html_blocks}
-        </body></html>
-        """
-        await page.set_content(cover_html)
-        await page.wait_for_timeout(1000)
+        # 🎨 让 AI 全权接管封面生成
+        print("🎨 正在渲染 AI 自由发挥的 1080P 宽屏封面...")
+        await page.set_content(ai_script.get('cover_html', '<html><body style="background:black;color:white;"><h1>设计生成失败，应用极简模式</h1></body></html>'))
+        await page.wait_for_timeout(2000) # 给 CSS 炫酷滤镜留出渲染时间
         await page.screenshot(path="cover_image.png")
 
+        # 宽屏免责声明
         disclaimer_html = """
         <!DOCTYPE html><html><head><meta charset="UTF-8"><style>
-            html { background: #ffffff; margin: 0; padding: 0; overflow: hidden; width: 100vw; height: 100vh; }
+            html { background: #0b0f19; margin: 0; padding: 0; overflow: hidden; width: 100vw; height: 100vh; }
             body { 
-                position: absolute; top: -5px; left: -5px; 
-                width: calc(100vw + 10px); height: calc(100vh + 10px); background: #ffffff;
+                background: linear-gradient(135deg, #0b0f19 0%, #1a233a 100%);
                 display: flex; flex-direction: column; justify-content: center; align-items: center; 
-                font-family: 'Microsoft YaHei', sans-serif; color: #333333; text-align: center; padding: 0 50px; 
+                font-family: 'Microsoft YaHei', sans-serif; color: #e2e8f0; text-align: center; height: 100vh; margin: 0;
             }
-            h1 { color: #000000; font-size: 55px; margin-bottom: 40px; font-weight: 900; letter-spacing: 5px;}
-            p { font-size: 32px; line-height: 1.8; font-weight: bold; }
-            .footer { margin-top: 60px; font-size: 26px; color: #888888; border-top: 2px solid #eeeeee; padding-top: 30px; width: 80%;}
+            h1 { color: #f8fafc; font-size: 80px; margin-bottom: 50px; font-weight: 900; letter-spacing: 10px;}
+            p { font-size: 45px; line-height: 2; font-weight: bold; color: #cbd5e1; }
+            .footer { margin-top: 80px; font-size: 35px; color: #64748b; border-top: 2px solid #334155; padding-top: 40px; width: 60%;}
         </style></head><body>
             <h1>免责声明</h1>
             <p>本视频内所有数据、图表及指标读数<br>均基于特定量化模型客观记录生成<br><br>不代表标的真实涨跌幅<br>亦不构成任何买卖及投资建议</p>
@@ -257,14 +237,12 @@ async def main():
         await page.wait_for_timeout(1000)
         await page.screenshot(path="disclaimer.png")
 
-        print("🌐 正在抓取真实带指标的 K 线图...")
+        print("🌐 正在抓取真实带指标的 16:9 TradingView 宽屏图表...")
         clean_css = """
             .layout__area--top, .layout__area--left, .layout__area--right, .layout__area--bottom, [data-name='widgetbar'], #widgetbar, .widgetbar-wrap { display: none !important; } 
             .layout__area--center { 
                 position: fixed !important; top: 0 !important; left: 0 !important; 
                 width: 100vw !important; height: 100vh !important; z-index: 9999 !important; 
-                transform-origin: top left !important; 
-                transform: scale(1.45, 1.15) !important; 
             }
         """
         base_chart_url = TV_CHART_URL.rstrip('/')
@@ -286,7 +264,7 @@ async def main():
     await safe_generate_tts(active_intro, "audio_intro.mp3")
     dur_intro = get_audio_duration("audio_intro.mp3")
     
-    intro_visual_total = max(9.000, dur_intro)
+    intro_visual_total = max(8.000, dur_intro)
     if dur_intro < intro_visual_total:
         subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", str(intro_visual_total - dur_intro), "intro_pad.mp3"])
         with open("intro_audio_list.txt", "w") as f: f.write("file 'audio_intro.mp3'\nfile 'intro_pad.mp3'\n")
@@ -298,16 +276,39 @@ async def main():
     audio_files = ["final_intro.mp3"]
     image_timeline = [
         "file 'cover_image.png'\nduration 1.500\n",
-        "file 'ss_main.png'\nduration 1.500\n"
+        "file 'ss_main.png'\nduration 1.000\n"
     ]
-    remain_zoom_time = intro_visual_total - 3.000
+    remain_zoom_time = intro_visual_total - 2.500
+
+    # 🎬 AI 掌机：根据 AI 意图加载相应的电影级运镜滤镜
+    print("🎬 正在使用 FFmpeg 渲染 AI 选定的电影级运镜特效...")
+    camera_effect = ai_script.get('camera_effect', 'zoom_in')
+    zoom_fps = 30
+    zoom_frames = int(remain_zoom_time * zoom_fps)
+    
+    if camera_effect == 'zoom_out':
+        vf_filter = f"zoompan=z='max(1.3-0.001*in,1)':d={zoom_frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1920x1080"
+    elif camera_effect == 'pan_left':
+        vf_filter = f"zoompan=z=1.2:d={zoom_frames}:x='max(0, (iw*0.2)-in*2)':y='ih/2-(ih/zoom/2)':s=1920x1080"
+    elif camera_effect == 'pan_right':
+        vf_filter = f"zoompan=z=1.2:d={zoom_frames}:x='min(in*2, iw*0.2)':y='ih/2-(ih/zoom/2)':s=1920x1080"
+    else: # 默认 zoom_in
+        vf_filter = f"zoompan=z='min(zoom+0.001,1.3)':d={zoom_frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1920x1080"
+
+    zoom_cmd = [
+        "ffmpeg", "-y", "-loop", "1", "-i", "ss_main.png",
+        "-vf", vf_filter,
+        "-t", str(remain_zoom_time),
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(zoom_fps), "ss_main_zoomed.mp4"
+    ]
+    subprocess.run(zoom_cmd, check=True)
     image_timeline.append(f"file 'ss_main_zoomed.mp4'\nduration {remain_zoom_time:.3f}\n")
 
     for i, etf in enumerate(etf_list):
         if i < len(ai_script['etf_narratives']):
             etf_text = clean_for_tts(ai_script['etf_narratives'][i])
         else:
-            etf_text = f"最后，别忘了看一眼{etf['name']}的核心异动。"
+            etf_text = f"来看{etf['name']}的客观走势。"
             
         etf_audio = f"audio_etf_{i}.mp3"
         await safe_generate_tts(etf_text, etf_audio)
@@ -329,44 +330,13 @@ async def main():
     with open("video_input.txt", "w") as f: f.writelines(image_timeline)
     with open("audio_input.txt", "w") as f: f.writelines([f"file '{a}'\n" for a in audio_files])
 
-    print("🎬 正在使用 Python 物理引擎渲染运镜 (大字号+极速垂直摇摄版)...")
-    from PIL import Image
-    import shutil
-    zoom_fps, frames_dir = 25, "temp_zoom_frames"
-    zoom_frames = int(remain_zoom_time * zoom_fps)
-    if os.path.exists(frames_dir): shutil.rmtree(frames_dir)
-    os.makedirs(frames_dir)
-
-    img = Image.open("ss_main.png")
-    w, h = img.size
-    target_w, target_h = int(w / 5.0), int(h / 5.0)
-
-    for i in range(zoom_frames):
-        if i <= 30:
-            progress = i / 30.0
-            ease_progress = 1 - (1 - progress) ** 3
-            current_w = int(w - (w - target_w) * ease_progress)
-            current_h = int(h - (h - target_h) * ease_progress)
-            current_x, current_y = 0, int(165 * ease_progress) 
-        else:
-            current_w, current_h, current_x = target_w, target_h, 0
-            pan_progress = (i - 30) / (zoom_frames - 30)
-            current_y = int(165 + (420 * pan_progress))
-        
-        box = (current_x, current_y, current_x + current_w, current_y + current_h)
-        frame = img.crop(box).resize((w, h), Image.Resampling.LANCZOS).convert('RGB')
-        frame.save(f"{frames_dir}/frame_{i:04d}.jpg", quality=95)
-
-    subprocess.run(["ffmpeg", "-y", "-framerate", str(zoom_fps), "-i", f"{frames_dir}/frame_%04d.jpg", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(zoom_fps), "ss_main_zoomed.mp4"], check=True)
-    shutil.rmtree(frames_dir)
-
-    print("🎬 正在拼装最终带有动态前奏的分镜视频...")
+    print("🎬 正在拼装 1920x1080 最终视频序列...")
     final_video = f"etf_report_{FILE_SUFFIX}.mp4"
-    subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", "cover_image.png", "-t", "2", "-c:v", "libx264", "-r", "25", "-pix_fmt", "yuv420p", "p1.mp4"], check=True)
-    subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", "ss_main.png", "-t", "2", "-c:v", "libx264", "-r", "25", "-pix_fmt", "yuv420p", "p2.mp4"], check=True)
+    subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", "cover_image.png", "-t", "1.5", "-c:v", "libx264", "-r", "30", "-pix_fmt", "yuv420p", "p1.mp4"], check=True)
+    subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", "ss_main.png", "-t", "1.0", "-c:v", "libx264", "-r", "30", "-pix_fmt", "yuv420p", "p2.mp4"], check=True)
     
     with open("video_backend.txt", "w") as f: f.writelines(image_timeline[3:])
-    subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "video_backend.txt", "-c:v", "libx264", "-r", "25", "-pix_fmt", "yuv420p", "p4.mp4"], check=True)
+    subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "video_backend.txt", "-c:v", "libx264", "-r", "30", "-pix_fmt", "yuv420p", "p4.mp4"], check=True)
     
     with open("final_stitch.txt", "w") as f: f.write("file 'p1.mp4'\nfile 'p2.mp4'\nfile 'ss_main_zoomed.mp4'\nfile 'p4.mp4'\n")
     subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "final_stitch.txt", "-c:v", "copy", "pre_final_video.mp4"], check=True)
@@ -383,10 +353,9 @@ async def main():
     bot_token = os.getenv('TELEGRAM_BOT_TOKEN', '').strip()
     chat_id = os.getenv('TELEGRAM_CHAT_ID', '').strip()
     
-    xhs_text = f"📝 【一键直发 · 爆款推文库】\n\n💡 {ai_script['social_title']}\n\n{ai_script['social_body']}\n\n--- 🎬 视频文案备份 ---\n{ai_script['video_intro']}"
+    xhs_text = f"📝 【AI 全自动宽屏视觉版】\n\n💡 {ai_script['social_title']}\n\n{ai_script['social_body']}\n\n--- 🎬 视频文案备份 ---\n{ai_script['video_intro']}"
     msg_title = ai_script['social_title']
 
-    # 💡 物理阻断法：防止 Telegram URL 也被自动加括号
     tg_host = "https://" + "api.telegram.org/bot"
 
     try:
