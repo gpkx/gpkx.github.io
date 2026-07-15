@@ -92,7 +92,10 @@ def call_ai_director(etf_list, time_label):
        - "social_body": "一篇排版极其精美的小红书长文稿。大量运用自媒体emoji，分段清晰。用今日设定的情绪深度复盘今天的大盘，解释为什么咱们的专属量化指标（特别是ATR的涨跌异动）比看均线更准。文末必须加上强势引流钩子（例如：想白嫖我这套全天候监控信号的，评论区见）。"
     """
 
-    url = "https://api.deepseek.com/chat/completions"
+    # 💡 物理阻断法：防止 DeepSeek URL 也被自动加括号
+    ds_host = "https://" + "api.deepseek.com"
+    url = f"{ds_host}/chat/completions"
+    
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}"
@@ -104,7 +107,7 @@ def call_ai_director(etf_list, time_label):
             {"role": "system", "content": "你是一个资深的A股量化交易专家和爆款自媒体运营大师。请严格按照用户要求输出纯净的 JSON 数据。"},
             {"role": "user", "content": prompt}
         ],
-        "response_format": {"type": "json_object"}  # 强制开启 JSON 约束模式，极其稳定
+        "response_format": {"type": "json_object"} 
     }
 
     last_error = ""
@@ -116,7 +119,6 @@ def call_ai_director(etf_list, time_label):
             
             raw_text = response.json()['choices'][0]['message']['content']
             
-            # 清洗头尾可能多余的标记
             clean_text = re.sub(r"^```json\s*", "", raw_text, flags=re.IGNORECASE)
             clean_text = re.sub(r"^```\s*", "", clean_text, flags=re.IGNORECASE)
             clean_text = re.sub(r"\s*```$", "", clean_text, flags=re.IGNORECASE)
@@ -200,7 +202,7 @@ async def main():
             sys.exit(1)
 
         print("🎭 正在调度 AI 专家生成今日动态情绪剧本...")
-        ai_script = call_ai_director(etf_list, TIME_LABEL) # 👈 这里已经无缝切换到了新接口
+        ai_script = call_ai_director(etf_list, TIME_LABEL)
         
         global SELECTED_HOOK
         SELECTED_HOOK = ai_script['social_title']
@@ -384,12 +386,15 @@ async def main():
     xhs_text = f"📝 【一键直发 · 爆款推文库】\n\n💡 {ai_script['social_title']}\n\n{ai_script['social_body']}\n\n--- 🎬 视频文案备份 ---\n{ai_script['video_intro']}"
     msg_title = ai_script['social_title']
 
+    # 💡 物理阻断法：防止 Telegram URL 也被自动加括号
+    tg_host = "https://" + "api.telegram.org/bot"
+
     try:
-        res_text = requests.post(f"[https://api.telegram.org/bot](https://api.telegram.org/bot){bot_token}/sendMessage", data={'chat_id': chat_id, 'text': xhs_text})
+        res_text = requests.post(f"{tg_host}{bot_token}/sendMessage", data={'chat_id': chat_id, 'text': xhs_text})
         res_text.raise_for_status()
         
         with open(final_video, 'rb') as vf:
-            res_video = requests.post(f"[https://api.telegram.org/bot](https://api.telegram.org/bot){bot_token}/sendVideo", data={'chat_id': chat_id, 'caption': f"🎬 {msg_title}"}, files={'video': vf}, timeout=120)
+            res_video = requests.post(f"{tg_host}{bot_token}/sendVideo", data={'chat_id': chat_id, 'caption': f"🎬 {msg_title}"}, files={'video': vf}, timeout=120)
             res_video.raise_for_status()
 
         img_list = ["cover_image.png", "ss_main.png"] + [f"ss_etf_{i}_{suffix}.png" for i in range(len(etf_list))] + ["disclaimer.png"]
@@ -400,7 +405,7 @@ async def main():
                     files[f"f{idx}"] = open(img, "rb")
                     media_group.append({"type": "photo", "media": f"attach://f{idx}"})
             
-            res_media = requests.post(f"[https://api.telegram.org/bot](https://api.telegram.org/bot){bot_token}/sendMediaGroup", data={'chat_id': chat_id, 'media': json.dumps(media_group)}, files=files, timeout=60)
+            res_media = requests.post(f"{tg_host}{bot_token}/sendMediaGroup", data={'chat_id': chat_id, 'media': json.dumps(media_group)}, files=files, timeout=60)
             res_media.raise_for_status()
             
             for f in files.values(): f.close()
