@@ -60,7 +60,6 @@ def clean_for_tts(text):
 # 🔥 核心升级：AI 动态情绪与防断联轮询引擎
 # ==========================================
 def call_gemini_director(etf_list, time_label):
-    # 💡 强制暴力清洗：剔除 GitHub 传参可能携带的隐藏回车或空格，这是防 404 的第一重保险
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
         print("❌ 致命错误：未检测到 GEMINI_API_KEY 环境变量！请检查 workflow 文件。")
@@ -92,7 +91,6 @@ def call_gemini_director(etf_list, time_label):
        - "social_body": "一篇排版极其精美的小红书长文稿。大量运用自媒体emoji，分段清晰。用今日设定的情绪深度复盘今天的大盘，解释为什么咱们的专属量化指标（特别是ATR的涨跌异动）比看均线更准。文末必须加上强势引流钩子（例如：想白嫖我这套全天候监控信号的，评论区见）。"
     """
 
-    # 💡 防断联第二重保险：AI 模型轮询池，遇 404 自动切换下一个
     model_pool = [
         "gemini-1.5-flash",
         "gemini-1.5-flash-latest",
@@ -102,15 +100,19 @@ def call_gemini_director(etf_list, time_label):
     ]
 
     headers = {"Content-Type": "application/json"}
-    
-    # 为了兼容老版本备胎模型，移除强制 JSON 返回头参数，转而依靠上方 Prompt 的强硬要求约束
     payload = {
         "contents": [{"parts": [{"text": prompt}]}]
     }
 
+    # 💡 物理阻断法：打断 URL 字符串，防止复制粘贴时被各种编辑器自动变成 Markdown 超链接！
+    api_host = "https://" + "generativelanguage.googleapis.com"
+    api_path = "/v1beta/models/"
+
     last_error = ""
     for model_name in model_pool:
-        url = f"[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/){model_name}:generateContent?key={api_key}"
+        # 安全拼装 URL，彻底杜绝隐形括号和富文本识别
+        url = f"{api_host}{api_path}{model_name}:generateContent?key={api_key}"
+        
         try:
             print(f"🔄 正在尝试唤醒 AI 模型: {model_name} ...")
             response = requests.post(url, json=payload, headers=headers, timeout=45)
@@ -118,7 +120,6 @@ def call_gemini_director(etf_list, time_label):
             
             raw_text = response.json()['candidates'][0]['content']['parts'][0]['text']
             
-            # 清洗各种 AI 喜欢携带的 Markdown 头尾，萃取出纯净 JSON
             clean_text = re.sub(r"^```json\s*", "", raw_text, flags=re.IGNORECASE)
             clean_text = re.sub(r"^```\s*", "", clean_text, flags=re.IGNORECASE)
             clean_text = re.sub(r"\s*```$", "", clean_text, flags=re.IGNORECASE)
@@ -156,7 +157,6 @@ async def main():
             user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 Safari/604.1"
         )
         
-        # 给 TV 的 Session Cookie 也顺手清洗一下潜在的回车符
         tv_session = os.getenv('TV_SESSION_ID', '').strip()
         if tv_session:
             await context.add_cookies([
@@ -209,7 +209,6 @@ async def main():
         print("🎭 正在调度 AI 专家生成今日动态情绪剧本...")
         ai_script = call_gemini_director(etf_list, TIME_LABEL)
         
-        # 强制接管：走到这里必定有高质量 AI 脚本
         global SELECTED_HOOK
         SELECTED_HOOK = ai_script['social_title']
         
@@ -288,8 +287,6 @@ async def main():
         await browser.close()
 
     print("🎵 正在合成 AI 定制情绪化配音...")
-    
-    # 强制接管 AI 开场白
     active_intro = clean_for_tts(ai_script['video_intro'])
     await safe_generate_tts(active_intro, "audio_intro.mp3")
     dur_intro = get_audio_duration("audio_intro.mp3")
@@ -312,11 +309,9 @@ async def main():
     image_timeline.append(f"file 'ss_main_zoomed.mp4'\nduration {remain_zoom_time:.3f}\n")
 
     for i, etf in enumerate(etf_list):
-        # 强制接管 AI 犀利短评
         if i < len(ai_script['etf_narratives']):
             etf_text = clean_for_tts(ai_script['etf_narratives'][i])
         else:
-            # 应对 AI 返回数量不足的极端情况
             etf_text = f"最后，别忘了看一眼{etf['name']}的核心异动。"
             
         etf_audio = f"audio_etf_{i}.mp3"
