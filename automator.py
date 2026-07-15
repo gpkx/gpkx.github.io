@@ -19,9 +19,6 @@ NOW = datetime.now(TZ)
 IS_MIDDAY = NOW.hour < 13
 TIME_LABEL = "午盘" if IS_MIDDAY else "收盘"
 FILE_SUFFIX = NOW.strftime("%Y%m%d_%H%M")
-
-# 兜底话术（断网或API超限时使用）
-INTRO_TEXT = f"欢迎关注，我们全天候监控40多只大型ETF，每天对波动最大的4只进行复盘。"
 OUTRO_TEXT = "本内容不构成投资建议。"
 
 def get_tv_symbol(code):
@@ -60,15 +57,14 @@ def clean_for_tts(text):
     return text.strip()
 
 # ==========================================
-# 🔥 核心升级：AI 动态情绪与人设引擎
+# 🔥 核心升级：AI 动态情绪与人设引擎 (宁缺毋滥版)
 # ==========================================
 def call_gemini_director(etf_list, time_label):
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        print("⚠️ 未检测到 GEMINI_API_KEY，启用本地兜底。")
-        return None
+        print("❌ 致命错误：未检测到 GEMINI_API_KEY 环境变量！请检查 workflow 文件。")
+        sys.exit(1) # 没有AI密钥，宁愿罢工也不发垃圾视频
 
-    # 随机抽取今天的人设状态，让每天的视频充满惊喜和“人味儿”
     personas = [
         "【犀利毒舌风】恨铁不成钢，嘲讽散户无脑追高，强调量化纪律和ATR阈值的冷酷无情。",
         "【老派教授风】语重心长，逻辑严密，像上课一样拆解今天ETF异动背后的宏观逻辑和主力意图。",
@@ -90,12 +86,13 @@ def call_gemini_director(etf_list, time_label):
     1. 必须返回合法的 JSON 格式（绝对不要包含 ```json 等 markdown 标记）。
     2. JSON 必须包含以下字段：
        - "video_intro": "短视频开场白（50-80字）。必须完美契合今日情绪！上来直接用这股情绪抛出暴论或悬念，不要任何俗套问候。注意：英文全写成 E T F、A T R 方便TTS朗读，绝对不要有表情符号。"
-       - "etf_narratives": "一个数组（与输入数据长度一致）。用今日情绪对每一只ETF进行50字左右的犀利短评，结合它的涨跌幅，解释主力意图，拒绝平铺直叙。不带表情符号。"
+       - "etf_narratives": "一个数组（与输入数据长度一致）。用今日情绪对每一只ETF进行50字左右的犀利短评，结合它的涨跌幅，解释主力意图，拒绝平铺直叙。绝对不要重复用同样的句式，绝对不带表情符号。"
        - "social_title": "小红书/公众号的爆款标题（20字内，带emoji，极具煽动性或悬念，必须贴合今日设定的情绪）。"
        - "social_body": "一篇排版极其精美的小红书长文稿。大量运用自媒体emoji，分段清晰。用今日设定的情绪深度复盘今天的大盘，解释为什么咱们的专属量化指标（特别是ATR的涨跌异动）比看均线更准。文末必须加上强势引流钩子（例如：想白嫖我这套全天候监控信号的，评论区见）。"
     """
 
-    url = f"[https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=](https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=){api_key}"
+    # 修复了稳定的 1.5 接口
+    url = f"[https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=](https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=){api_key}"
     headers = {"Content-Type": "application/json"}
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
@@ -103,7 +100,7 @@ def call_gemini_director(etf_list, time_label):
     }
 
     try:
-        response = requests.post(url, json=payload, headers=headers, timeout=40)
+        response = requests.post(url, json=payload, headers=headers, timeout=60)
         response.raise_for_status()
         raw_text = response.json()['candidates'][0]['content']['parts'][0]['text']
         clean_text = re.sub(r"^```json\s*", "", raw_text, flags=re.IGNORECASE)
@@ -111,8 +108,8 @@ def call_gemini_director(etf_list, time_label):
         clean_text = re.sub(r"\s*```$", "", clean_text, flags=re.IGNORECASE)
         return json.loads(clean_text)
     except Exception as e:
-        print(f"⚠️ AI 导演罢工 ({e})，启用备用剧本。")
-        return None
+        print(f"❌ 致命错误：Gemini AI 剧本生成失败！原因: {e}")
+        sys.exit(1) # AI挂了直接熔断，不再使用低级文本
 
 async def main():
     print(f"🚀 开始执行【全自动AI情绪化复盘】工作流... {NOW}")
@@ -133,31 +130,26 @@ async def main():
             
         page = await context.new_page()
 
-        # --- A. 抓取真实数据并生成手机原生截图 ---
         print("🔍 正在截取前端真实数据总览并提取核心指标...")
-        # 放宽页面加载条件，防止网络卡顿导致直接报错
-        await page.goto(TARGET_URL, wait_until="domcontentloaded")
-        
-        # 智能死磕等待：循环检测页面中是否渲染出了 ETF 的 6 位代码，最多等 20 秒
-        data_loaded = False
-        for _ in range(20):
-            page_text = await page.evaluate("document.body.innerText")
-            if re.search(r'\b(5\d{5}|1\d{5})\b', page_text):
-                data_loaded = True
-                break
-            await page.wait_for_timeout(1000)
-            
-        if not data_loaded:
-            print("🛑 网页加载超时，未能在20秒内渲染出ETF数据。")
-            await browser.close()
-            sys.exit(1)
-
-        # 确保数据加载完成后，多给 1 秒让动画或排版稳定，再截图
-        await page.wait_for_timeout(1000)
-        await page.screenshot(path="ss_main.png")
-        
-        etf_list = []
         try:
+            await page.goto(TARGET_URL, wait_until="domcontentloaded")
+            data_loaded = False
+            for _ in range(20):
+                page_text = await page.evaluate("document.body.innerText")
+                if re.search(r'\b(5\d{5}|1\d{5})\b', page_text):
+                    data_loaded = True
+                    break
+                await page.wait_for_timeout(1000)
+                
+            if not data_loaded:
+                print("🛑 网页加载超时，未能在20秒内渲染出有效的大盘 ETF 数据。")
+                await browser.close()
+                sys.exit(1)
+
+            await page.wait_for_timeout(1000)
+            await page.screenshot(path="ss_main.png")
+            
+            etf_list = []
             row_locators = page.locator("tr, .el-table__row, .row, li")
             for i in range(await row_locators.count()):
                 if len(etf_list) >= 4: break
@@ -171,19 +163,19 @@ async def main():
                         change = pcts[1] if not IS_MIDDAY and len(pcts) >= 2 else pcts[0]
                         if not any(e['code'] == code for e in etf_list):
                             etf_list.append({"name": name, "code": code, "change": change})
-            if not etf_list: raise Exception("未找到有效数据，大盘可能休市或数据源异常")
+            if not etf_list:
+                raise Exception("未解析到任何ETF数据条目")
         except Exception as e:
             print(f"🛑 数据抓取失败，停止生成。({e})")
             await browser.close()
-            sys.exit(1)  # 👈 核心修改：遇到异常强行终止，抛出错误码给 Github Actions 触发红灯
+            sys.exit(1)
 
-        # --- 🧠 呼叫 AI 导演生成今日专属剧本 ---
         print("🎭 正在呼叫 Gemini 生成今日动态情绪剧本...")
         ai_script = call_gemini_director(etf_list, TIME_LABEL)
-
+        
+        # 强制接管：走到这里必定有高质量 AI 脚本
         global SELECTED_HOOK
-        top_etf = etf_list[0]
-        SELECTED_HOOK = ai_script['social_title'] if ai_script else f"📊 {TIME_LABEL}异动追踪！{top_etf['name']}核心数据复盘！"
+        SELECTED_HOOK = ai_script['social_title']
         
         top3_html_blocks = ""
         for i, e in enumerate(etf_list[:3]):
@@ -259,8 +251,10 @@ async def main():
 
         await browser.close()
 
-    print("🎵 正在合成情绪化配音...")
-    active_intro = clean_for_tts(ai_script['video_intro']) if ai_script else INTRO_TEXT
+    print("🎵 正在合成 AI 定制情绪化配音...")
+    
+    # 强制接管 AI 开场白
+    active_intro = clean_for_tts(ai_script['video_intro'])
     await safe_generate_tts(active_intro, "audio_intro.mp3")
     dur_intro = get_audio_duration("audio_intro.mp3")
     
@@ -282,10 +276,12 @@ async def main():
     image_timeline.append(f"file 'ss_main_zoomed.mp4'\nduration {remain_zoom_time:.3f}\n")
 
     for i, etf in enumerate(etf_list):
-        if ai_script and i < len(ai_script['etf_narratives']):
+        # 强制接管 AI 犀利短评
+        if i < len(ai_script['etf_narratives']):
             etf_text = clean_for_tts(ai_script['etf_narratives'][i])
         else:
-            etf_text = f"接着看{etf['name']}，{format_quant_voice(etf['change'])}。"
+            # 应对 AI 返回数量不足的极端情况
+            etf_text = f"最后，别忘了看一眼{etf['name']}的核心异动。"
             
         etf_audio = f"audio_etf_{i}.mp3"
         await safe_generate_tts(etf_text, etf_audio)
@@ -361,14 +357,9 @@ async def main():
     bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
     chat_id = os.getenv('TELEGRAM_CHAT_ID')
     
-    if ai_script:
-        xhs_text = f"📝 【一键直发 · 爆款推文库】\n\n💡 {ai_script['social_title']}\n\n{ai_script['social_body']}\n\n--- 🎬 视频文案备份 ---\n{ai_script['video_intro']}"
-        msg_title = ai_script['social_title']
-    else:
-        msg_title = f"📈 {TIME_LABEL}异动！触发{etf_list[0]['change']}！"
-        xhs_text = f"📝 【备用库】\n\n{msg_title}\n\n数据记录，拒绝预测。"
+    xhs_text = f"📝 【一键直发 · 爆款推文库】\n\n💡 {ai_script['social_title']}\n\n{ai_script['social_body']}\n\n--- 🎬 视频文案备份 ---\n{ai_script['video_intro']}"
+    msg_title = ai_script['social_title']
 
-    # 👈 核心修改：给每一项发往 Telegram 的请求，加上强制异常校验
     try:
         res_text = requests.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", data={'chat_id': chat_id, 'text': xhs_text})
         res_text.raise_for_status()
@@ -392,7 +383,7 @@ async def main():
             
     except Exception as e:
         print(f"🛑 推送至 Telegram 失败！原因: {e}")
-        sys.exit(1) # 遇到网络拦截或超时强行阻断返回红灯
+        sys.exit(1)
 
 if __name__ == "__main__":
     asyncio.run(main())
