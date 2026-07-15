@@ -5,6 +5,7 @@ import asyncio
 import subprocess
 import random
 import re
+import time  # 👈 新增：用于抗限流的休眠模块
 from datetime import datetime
 import pytz
 from playwright.async_api import async_playwright
@@ -57,7 +58,7 @@ def clean_for_tts(text):
     return text.strip()
 
 # ==========================================
-# 🔥 核心升级：AI 动态情绪与防断联轮询引擎
+# 🔥 核心升级：AI 动态情绪与防断联轮询引擎 (抗 429 增强版)
 # ==========================================
 def call_gemini_director(etf_list, time_label):
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
@@ -91,10 +92,11 @@ def call_gemini_director(etf_list, time_label):
        - "social_body": "一篇排版极其精美的小红书长文稿。大量运用自媒体emoji，分段清晰。用今日设定的情绪深度复盘今天的大盘，解释为什么咱们的专属量化指标（特别是ATR的涨跌异动）比看均线更准。文末必须加上强势引流钩子（例如：想白嫖我这套全天候监控信号的，评论区见）。"
     """
 
+    # 优先使用目前可用性最广的模型
     model_pool = [
-        "gemini-1.5-flash",
-        "gemini-1.5-flash-latest",
         "gemini-2.0-flash",
+        "gemini-2.0-flash-exp",
+        "gemini-1.5-flash",
         "gemini-1.5-pro",
         "gemini-pro"
     ]
@@ -104,13 +106,11 @@ def call_gemini_director(etf_list, time_label):
         "contents": [{"parts": [{"text": prompt}]}]
     }
 
-    # 💡 物理阻断法：打断 URL 字符串，防止复制粘贴时被各种编辑器自动变成 Markdown 超链接！
     api_host = "https://" + "generativelanguage.googleapis.com"
     api_path = "/v1beta/models/"
 
     last_error = ""
     for model_name in model_pool:
-        # 安全拼装 URL，彻底杜绝隐形括号和富文本识别
         url = f"{api_host}{api_path}{model_name}:generateContent?key={api_key}"
         
         try:
@@ -133,8 +133,13 @@ def call_gemini_director(etf_list, time_label):
             if e.response.status_code == 404:
                 print(f"⚠️ 模型 {model_name} 未被授权或找不到 (404)，自动切换下一个备胎...")
                 continue
+            elif e.response.status_code == 429:
+                # 👈 核心修改：遇到 429 不再报错退出，而是休眠 15 秒躲过并发检测，继续重试
+                print(f"⏳ 触发免费版限流 (429)！可能是 GitHub 节点并发挤占，休眠 15 秒后继续硬刚...")
+                time.sleep(15)
+                continue
             else:
-                print(f"❌ 致命错误：AI 接口请求被拒绝 (状态码: {e.response.status_code})。请确认 API Key 额度或权限。")
+                print(f"❌ 致命错误：AI 接口请求被拒绝 (状态码: {e.response.status_code})。")
                 sys.exit(1)
         except json.JSONDecodeError:
             print(f"⚠️ 模型 {model_name} 没按规矩输出 JSON，废弃重试...")
