@@ -73,26 +73,20 @@
             <div v-else class="space-y-3">
                 
                 <!-- 顶部控制区：下拉筛选器 + 搜索功能 -->
-                <!-- 🌟 调整：强制同一行显示 (flex-row)，并配置自适应收缩 -->
                 <div class="flex flex-row gap-2 relative z-40">
                     
                     <div class="flex-1 bg-white rounded-xl shadow-sm border border-gray-100 relative min-w-0">
                         <button @click.stop="toggleDropdown" class="w-full flex items-center justify-between border-transparent rounded-xl px-3 py-2.5 text-sm font-semibold hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500">
-                            <!-- 🌟 调整：添加 truncate 防止搜索框展开时文字撑破屏幕 -->
+                            <!-- 🌟 调整：只显示确定的日期，彻底去除 200 条的概念 -->
                             <span class="flex items-center gap-1.5 truncate">
-                                <span v-if="selectedDate === 'latest'" class="truncate">🔥 最新200条触发记录</span>
-                                <span v-else class="truncate">📅 指定日期：{{ selectedDate }}</span>
+                                <span class="truncate">📅 交易日：{{ selectedDate || '数据加载中...' }}</span>
                             </span>
                             <i class="fa-solid fa-chevron-down text-gray-400 transition-transform duration-200 ml-1 shrink-0" :class="{'rotate-180': showDropdown}"></i>
                         </button>
 
                         <!-- 下拉弹窗面板 -->
                         <div v-if="showDropdown" @click.stop class="absolute left-0 mt-2 bg-white border border-gray-200 rounded-xl shadow-xl z-50 p-4 w-[90vw] max-w-sm sm:w-80">
-                            <button @click="selectLatest" class="w-full text-left px-3 py-2 text-sm font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg mb-3 flex items-center gap-2 transition-colors">
-                                🔥 最新200条触发记录
-                            </button>
-
-                            <div class="border-t border-gray-100 my-2 pt-2">
+                            <div class="mb-2">
                                 <div class="flex items-center justify-between mb-3">
                                     <button @click="prevMonth" :disabled="isPrevMonthDisabled" class="p-1 px-2 text-gray-600 hover:bg-gray-100 rounded disabled:opacity-20 disabled:hover:bg-transparent">
                                         <i class="fa-solid fa-chevron-left text-xs"></i>
@@ -126,7 +120,6 @@
                     </div>
 
                     <!-- 动态搜索框 -->
-                    <!-- 🌟 调整：展开时占用部分宽度而非全宽，避免手机端挤压 -->
                     <div class="bg-white rounded-xl shadow-sm border border-gray-100 flex items-center transition-all duration-300 shrink-0" :class="showSearch ? 'w-[55%] sm:w-64' : 'w-auto cursor-pointer hover:bg-gray-50'" @click="openSearch">
                         <i class="fa-solid fa-magnifying-glass text-gray-500 px-3 py-3 cursor-pointer hover:text-blue-500" @click.stop="toggleSearch"></i>
                         <input 
@@ -146,8 +139,6 @@
                 <div class="bg-white rounded-xl shadow-sm border border-gray-200 relative">
                     <div class="w-full custom-scrollbar overflow-x-auto md:overflow-visible">
                         <table class="w-full text-center border-collapse whitespace-nowrap min-w-max">
-                            
-                            <!-- 🌟 核心修复：手机端用 top-0 修复空白断层溢出；电脑端 md 屏幕才启用 top-[56px] 悬浮吸顶 -->
                             <thead class="sticky top-0 md:top-[56px] bg-slate-100 shadow-sm z-30">
                                 <tr class="text-sm font-bold text-slate-700 select-none">
                                     <th class="py-2.5 px-2 md:px-3 text-center sticky left-0 bg-slate-100 z-40 shadow-[1px_0_0_0_#e2e8f0] etf-name-column cursor-pointer hover:bg-slate-200 transition-colors" @click="handleSort('etf_name')">
@@ -180,7 +171,7 @@
                                     </th>
                                     <th class="py-2.5 px-2 md:px-3 cursor-pointer hover:bg-slate-200 transition-colors" @click="handleSort('day_status')">
                                         <div class="flex items-center justify-center gap-1">
-                                            全天
+                                            日线
                                             <div class="flex flex-col text-[9px] leading-[8px] text-gray-300">
                                                 <i class="fa-solid fa-caret-up" :class="{'text-blue-600': sortColumn === 'day_status' && sortOrder === 'asc'}"></i>
                                                 <i class="fa-solid fa-caret-down" :class="{'text-blue-600': sortColumn === 'day_status' && sortOrder === 'desc'}"></i>
@@ -189,7 +180,7 @@
                                     </th>
                                     <th class="py-2.5 px-2 md:px-3 cursor-pointer hover:bg-slate-200 transition-colors" @click="handleSort('week_status')">
                                         <div class="flex items-center justify-center gap-1">
-                                            本周
+                                            周线
                                             <div class="flex flex-col text-[9px] leading-[8px] text-gray-300">
                                                 <i class="fa-solid fa-caret-up" :class="{'text-blue-600': sortColumn === 'week_status' && sortOrder === 'asc'}"></i>
                                                 <i class="fa-solid fa-caret-down" :class="{'text-blue-600': sortColumn === 'week_status' && sortOrder === 'desc'}"></i>
@@ -222,10 +213,8 @@
                                                        :class="expandedRowKey === item.etf_code + '_' + item.date ? 'fa-chevron-down rotate-180 text-blue-500' : 'fa-chevron-right'"></i>
                                                 </div>
                                                 <div class="flex items-center gap-2 mt-0.5">
+                                                    <!-- 去除了多余的日期标签显示，因为现在页面全局都是同一天的数据 -->
                                                     <span class="text-xs text-gray-600 font-semibold font-mono">{{ item.etf_code }}</span>
-                                                    <span v-if="selectedDate === 'latest'" class="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-mono">
-                                                        {{ item.date.slice(5) }}
-                                                    </span>
                                                 </div>
                                             </div>
                                         </td>
@@ -282,7 +271,8 @@
             setup() {
                 const loading = ref(true);
                 const allData = ref([]); 
-                const selectedDate = ref('latest');
+                // 🌟 调整：默认值置空，等接口拉到数据后再赋“最新一个交易日”
+                const selectedDate = ref('');
                 const expandedRowKey = ref(null); 
 
                 const searchQuery = ref('');
@@ -335,11 +325,6 @@
                     showSearch.value = !showSearch.value;
                     if (!showSearch.value) searchQuery.value = '';
                     else setTimeout(() => searchInput.value?.focus(), 100);
-                };
-
-                const selectLatest = () => {
-                    selectedDate.value = 'latest';
-                    closeDropdown();
                 };
 
                 const selectDate = (dateStr) => {
@@ -423,6 +408,10 @@
                         
                         if (response.ok) {
                             allData.value = await response.json();
+                            // 🌟 调整：获取数据后，将默认日期设定为最新一个存在数据的交易日
+                            if (endDateLimit.value) {
+                                selectedDate.value = endDateLimit.value;
+                            }
                         }
                     } catch (error) {
                         console.error('API 读取失败');
@@ -454,13 +443,9 @@
                 };
 
                 const filteredDateData = computed(() => {
-                    let baseData = [];
-                    if (selectedDate.value === 'latest') {
-                        baseData = allData.value;
-                    } else {
-                        baseData = allData.value.filter(item => item.date === selectedDate.value);
-                    }
-                    
+                    if (!selectedDate.value) return [];
+
+                    let baseData = allData.value.filter(item => item.date === selectedDate.value);
                     let validItems = baseData.filter(item => countData(item) > 0);
                     
                     if (searchQuery.value) {
@@ -471,10 +456,9 @@
                         );
                     }
 
+                    // 排序主逻辑
                     validItems.sort((a, b) => {
-                        const dateDiff = b.date.localeCompare(a.date);
-                        if (dateDiff !== 0) return dateDiff;
-                        
+                        // 1. 如果开启了【点击表头单独排序】
                         if (sortColumn.value) {
                             if (sortColumn.value === 'etf_name') {
                                 const cmp = a.etf_name.localeCompare(b.etf_name, 'zh-CN');
@@ -489,28 +473,38 @@
                                 return sortOrder.value === 'desc' ? valB - valA : valA - valB;
                             }
                         } 
+                        // 2. 🌟 调整：【默认全局绝对值排序规则】(不管涨跌，取数值绝对值由大到小)
                         else {
-                            const aDay = getStatusVal(a.day_status);
-                            const bDay = getStatusVal(b.day_status);
-                            const aHalfMax = Math.max(getStatusVal(a.am_status), getStatusVal(a.pm_status));
-                            const bHalfMax = Math.max(getStatusVal(b.am_status), getStatusVal(b.pm_status));
+                            const getAbsVal = (status) => {
+                                const v = getStatusVal(status);
+                                return v === -9999 ? -9999 : Math.abs(v);
+                            };
+
+                            const aDay = getAbsVal(a.day_status);
+                            const bDay = getAbsVal(b.day_status);
+                            const aHalfMax = Math.max(getAbsVal(a.am_status), getAbsVal(a.pm_status));
+                            const bHalfMax = Math.max(getAbsVal(b.am_status), getAbsVal(b.pm_status));
                             
                             const aHasDay = aDay > -9999;
                             const bHasDay = bDay > -9999;
                             
+                            // 都存在日线数据，按日线跌涨幅的绝对值由大到小排
                             if (aHasDay && bHasDay) {
                                 return bDay - aDay;
-                            } else if (aHasDay && !bHasDay) {
+                            } 
+                            // 仅其中一方有日线数据，有数据的排在前面
+                            else if (aHasDay && !bHasDay) {
                                 return -1;
                             } else if (!aHasDay && bHasDay) {
                                 return 1;
-                            } else {
+                            } 
+                            // 都不存在日线数据，则按上午或下午最大的绝对值跌涨幅由大到小排
+                            else {
                                 return bHalfMax - aHalfMax;
                             }
                         }
                     });
                     
-                    if (selectedDate.value === 'latest' && !searchQuery.value) return validItems.slice(0, 200);
                     return validItems;
                 });
 
@@ -622,7 +616,7 @@
                     formatChineseDate, getDetailParts,
                     showDropdown, currentYear, currentMonth, calendarBlanks, calendarDays,
                     isPrevMonthDisabled, isNextMonthDisabled, toggleDropdown, closeDropdown,
-                    selectLatest, selectDate, prevMonth, nextMonth,
+                    selectDate, prevMonth, nextMonth,
                     getEtfNameStyle,
                     searchQuery, showSearch, searchInput, toggleSearch, openSearch,
                     sortColumn, sortOrder, handleSort
