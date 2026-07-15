@@ -12,7 +12,7 @@ import edge_tts
 import requests
 
 # 1. 基础配置
-TARGET_URL = "hhttps://gpkx.github.io/" 
+TARGET_URL = "https://gpkx.github.io/" 
 TV_CHART_URL = "https://cn.tradingview.com/chart/fxUqvHrk/" 
 TZ = pytz.timezone('Asia/Shanghai')
 NOW = datetime.now(TZ)
