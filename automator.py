@@ -57,13 +57,14 @@ def clean_for_tts(text):
     return text.strip()
 
 # ==========================================
-# 🔥 核心升级：AI 动态情绪与人设引擎 (宁缺毋滥版)
+# 🔥 核心升级：AI 动态情绪与防断联轮询引擎
 # ==========================================
 def call_gemini_director(etf_list, time_label):
-    api_key = os.getenv("GEMINI_API_KEY")
+    # 💡 强制暴力清洗：剔除 GitHub 传参可能携带的隐藏回车或空格，这是防 404 的第一重保险
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
         print("❌ 致命错误：未检测到 GEMINI_API_KEY 环境变量！请检查 workflow 文件。")
-        sys.exit(1) # 没有AI密钥，宁愿罢工也不发垃圾视频
+        sys.exit(1)
 
     personas = [
         "【犀利毒舌风】恨铁不成钢，嘲讽散户无脑追高，强调量化纪律和ATR阈值的冷酷无情。",
@@ -91,25 +92,59 @@ def call_gemini_director(etf_list, time_label):
        - "social_body": "一篇排版极其精美的小红书长文稿。大量运用自媒体emoji，分段清晰。用今日设定的情绪深度复盘今天的大盘，解释为什么咱们的专属量化指标（特别是ATR的涨跌异动）比看均线更准。文末必须加上强势引流钩子（例如：想白嫖我这套全天候监控信号的，评论区见）。"
     """
 
-    # 修复了稳定的 1.5 接口
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    # 💡 防断联第二重保险：AI 模型轮询池，遇 404 自动切换下一个
+    model_pool = [
+        "gemini-1.5-flash",
+        "gemini-1.5-flash-latest",
+        "gemini-2.0-flash",
+        "gemini-1.5-pro",
+        "gemini-pro"
+    ]
+
     headers = {"Content-Type": "application/json"}
+    
+    # 为了兼容老版本备胎模型，移除强制 JSON 返回头参数，转而依靠上方 Prompt 的强硬要求约束
     payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"responseMimeType": "application/json"}
+        "contents": [{"parts": [{"text": prompt}]}]
     }
 
-    try:
-        response = requests.post(url, json=payload, headers=headers, timeout=60)
-        response.raise_for_status()
-        raw_text = response.json()['candidates'][0]['content']['parts'][0]['text']
-        clean_text = re.sub(r"^```json\s*", "", raw_text, flags=re.IGNORECASE)
-        clean_text = re.sub(r"^```\s*", "", clean_text, flags=re.IGNORECASE)
-        clean_text = re.sub(r"\s*```$", "", clean_text, flags=re.IGNORECASE)
-        return json.loads(clean_text)
-    except Exception as e:
-        print(f"❌ 致命错误：Gemini AI 剧本生成失败！原因: {e}")
-        sys.exit(1) # AI挂了直接熔断，不再使用低级文本
+    last_error = ""
+    for model_name in model_pool:
+        url = f"[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/){model_name}:generateContent?key={api_key}"
+        try:
+            print(f"🔄 正在尝试唤醒 AI 模型: {model_name} ...")
+            response = requests.post(url, json=payload, headers=headers, timeout=45)
+            response.raise_for_status()
+            
+            raw_text = response.json()['candidates'][0]['content']['parts'][0]['text']
+            
+            # 清洗各种 AI 喜欢携带的 Markdown 头尾，萃取出纯净 JSON
+            clean_text = re.sub(r"^```json\s*", "", raw_text, flags=re.IGNORECASE)
+            clean_text = re.sub(r"^```\s*", "", clean_text, flags=re.IGNORECASE)
+            clean_text = re.sub(r"\s*```$", "", clean_text, flags=re.IGNORECASE)
+            
+            result = json.loads(clean_text)
+            print(f"✅ 成功通过 {model_name} 输出深度好文案！")
+            return result
+            
+        except requests.exceptions.HTTPError as e:
+            last_error = str(e)
+            if e.response.status_code == 404:
+                print(f"⚠️ 模型 {model_name} 未被授权或找不到 (404)，自动切换下一个备胎...")
+                continue
+            else:
+                print(f"❌ 致命错误：AI 接口请求被拒绝 (状态码: {e.response.status_code})。请确认 API Key 额度或权限。")
+                sys.exit(1)
+        except json.JSONDecodeError:
+            print(f"⚠️ 模型 {model_name} 没按规矩输出 JSON，废弃重试...")
+            continue
+        except Exception as e:
+            last_error = str(e)
+            print(f"⚠️ 模型 {model_name} 网络或解析异常: {e}")
+            continue
+
+    print(f"❌ 致命错误：轮询池内所有 AI 模型全军覆没！最后一次报错: {last_error}")
+    sys.exit(1)
 
 async def main():
     print(f"🚀 开始执行【全自动AI情绪化复盘】工作流... {NOW}")
@@ -121,7 +156,8 @@ async def main():
             user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 Safari/604.1"
         )
         
-        tv_session = os.getenv('TV_SESSION_ID')
+        # 给 TV 的 Session Cookie 也顺手清洗一下潜在的回车符
+        tv_session = os.getenv('TV_SESSION_ID', '').strip()
         if tv_session:
             await context.add_cookies([
                 {'name': 'sessionid', 'value': tv_session, 'domain': '.tradingview.com', 'path': '/'},
@@ -170,7 +206,7 @@ async def main():
             await browser.close()
             sys.exit(1)
 
-        print("🎭 正在呼叫 Gemini 生成今日动态情绪剧本...")
+        print("🎭 正在调度 AI 专家生成今日动态情绪剧本...")
         ai_script = call_gemini_director(etf_list, TIME_LABEL)
         
         # 强制接管：走到这里必定有高质量 AI 脚本
@@ -354,8 +390,8 @@ async def main():
         if os.path.exists(tmp): os.remove(tmp)
         
     print("✈️ 正在推送到 Telegram 接收端...")
-    bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
-    chat_id = os.getenv('TELEGRAM_CHAT_ID')
+    bot_token = os.getenv('TELEGRAM_BOT_TOKEN', '').strip()
+    chat_id = os.getenv('TELEGRAM_CHAT_ID', '').strip()
     
     xhs_text = f"📝 【一键直发 · 爆款推文库】\n\n💡 {ai_script['social_title']}\n\n{ai_script['social_body']}\n\n--- 🎬 视频文案备份 ---\n{ai_script['video_intro']}"
     msg_title = ai_script['social_title']
