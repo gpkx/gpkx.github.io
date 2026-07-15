@@ -1,5 +1,5 @@
 import os
-import sys  # 👈 新增：用于强制终止程序，抛出错误状态码
+import sys
 import json
 import asyncio
 import subprocess
@@ -133,9 +133,27 @@ async def main():
             
         page = await context.new_page()
 
-        print("🔍 正在截取前端真实数据总览...")
-        await page.goto(TARGET_URL, wait_until="networkidle")
-        await page.wait_for_timeout(5000) 
+        # --- A. 抓取真实数据并生成手机原生截图 ---
+        print("🔍 正在截取前端真实数据总览并提取核心指标...")
+        # 放宽页面加载条件，防止网络卡顿导致直接报错
+        await page.goto(TARGET_URL, wait_until="domcontentloaded")
+        
+        # 智能死磕等待：循环检测页面中是否渲染出了 ETF 的 6 位代码，最多等 20 秒
+        data_loaded = False
+        for _ in range(20):
+            page_text = await page.evaluate("document.body.innerText")
+            if re.search(r'\b(5\d{5}|1\d{5})\b', page_text):
+                data_loaded = True
+                break
+            await page.wait_for_timeout(1000)
+            
+        if not data_loaded:
+            print("🛑 网页加载超时，未能在20秒内渲染出ETF数据。")
+            await browser.close()
+            sys.exit(1)
+
+        # 确保数据加载完成后，多给 1 秒让动画或排版稳定，再截图
+        await page.wait_for_timeout(1000)
         await page.screenshot(path="ss_main.png")
         
         etf_list = []
