@@ -6,11 +6,13 @@ import subprocess
 import random
 import re
 import time
+import shutil
 from datetime import datetime
 import pytz
 from playwright.async_api import async_playwright
 import edge_tts
 import requests
+from PIL import Image
 
 # 1. 基础配置
 TARGET_URL = "https://gpkx.github.io/" 
@@ -50,12 +52,10 @@ async def safe_generate_tts(text, filename, retries=3):
 
 def clean_for_tts(text):
     if not text: return ""
-    
     if isinstance(text, dict):
         text = "，".join([str(v) for v in text.values() if isinstance(v, str)])
     elif not isinstance(text, str):
         text = str(text)
-        
     text = re.sub(r'[\U00010000-\U0010ffff]', '', text)
     text = text.replace('*', '').replace('_', '').replace('#', '').replace('`', '')
     text = re.sub(r'(?i)\betf\b', ' E T F ', text)
@@ -64,7 +64,61 @@ def clean_for_tts(text):
     return text.strip()
 
 # ==========================================
-# 🔥 核心升级：强绑定明亮审美 + 极简客观文案
+# 🔥 PIL 物理运镜渲染引擎 (彻底告别静止BUG)
+# ==========================================
+def create_zoom_video(img_path, output_video, duration, fps=30, zoom_type='main'):
+    frames_dir = f"temp_frames_{os.path.basename(img_path).split('.')[0]}"
+    if os.path.exists(frames_dir): shutil.rmtree(frames_dir)
+    os.makedirs(frames_dir)
+
+    img = Image.open(img_path).convert('RGB')
+    w, h = img.size # 预期 1920x1080
+    total_frames = int(duration * fps)
+
+    for i in range(total_frames):
+        if zoom_type == 'main':
+            # 【三段式】：前60帧(2秒)向上方居中平滑放大到2倍，随后极速向下扫视
+            if i <= 60:
+                progress = i / 60.0
+                ease = 1 - (1 - progress)**3 # 平滑缓动曲线
+                zoom = 1.0 + ease * 1.0 # 1.0 放大到 2.0
+                cw, ch = int(w/zoom), int(h/zoom)
+                cx = int((w - cw) / 2) # 水平绝对居中
+                cy = 0 # 镜头死死顶住上方表头
+            else:
+                zoom = 2.0
+                cw, ch = int(w/2.0), int(h/2.0)
+                cx = int((w - cw) / 2)
+                pan_progress = (i - 60) / (total_frames - 60)
+                cy = int((h - ch) * pan_progress) # 极速向底部拉动
+        else:
+            # 【呼吸感】：TV图表缓慢向中心推进 (1.0 放大到 1.1)
+            progress = i / total_frames
+            zoom = 1.0 + 0.1 * progress
+            cw, ch = int(w/zoom), int(h/zoom)
+            cx, cy = int((w - cw) / 2), int((h - ch) / 2)
+
+        box = (cx, cy, cx + cw, cy + ch)
+        frame = img.crop(box).resize((w, h), Image.Resampling.LANCZOS)
+        frame.save(f"{frames_dir}/frame_{i:04d}.jpg", quality=90)
+
+    cmd = [
+        "ffmpeg", "-y", "-framerate", str(fps), "-i", f"{frames_dir}/frame_%04d.jpg",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(fps), output_video
+    ]
+    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    shutil.rmtree(frames_dir)
+
+# 将静态图片转化为固定时长的 mp4
+def create_static_video(img_path, output_video, duration, fps=30):
+    cmd = [
+        "ffmpeg", "-y", "-loop", "1", "-i", img_path, "-t", str(duration),
+        "-c:v", "libx264", "-r", str(fps), "-pix_fmt", "yuv420p", output_video
+    ]
+    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+# ==========================================
+# 🔥 核心：AI 智能中枢 (封杀暗黑，强制居中)
 # ==========================================
 def call_ai_director(etf_list, time_label):
     api_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
@@ -73,85 +127,66 @@ def call_ai_director(etf_list, time_label):
         sys.exit(1)
 
     prompt = f"""
-    你现在是顶级的A股量化交易专家兼爆款自媒体高级视觉设计师。
+    你现在是顶级的A股量化交易专家兼爆款自媒体视觉设计师。
     
-    【今日核心触发数据（绝对事实）】：
+    【今日核心触发数据（绝对事实，不可篡改）】：
     {json.dumps(etf_list, ensure_ascii=False, indent=2)}
 
     🚨 【最高指令：极简客观与绝对服从】 🚨
-    1. 严禁编造5日均线、MACD等任何未提供的数据，只能围绕上面的 ETF 名称和 `change` 数值客观解说！
-    2. 语言必须极其精炼，少即是多！
+    1. 你的分析必须 100% 依赖上方 JSON 里的 ETF 名称和 `change`（ATR异动指标）数值。
+    2. 严禁编造5日均线、MACD等垃圾指标，严禁对未来走势瞎猜。语言必须极其精炼，少即是多！
 
-    【输出要求】：返回合法的 JSON，精确包含以下 5 个字段：
-    - "video_intro": 视频开场白。只需1到2句（20-30字）极简概括。英文写 E T F、A T R。无表情符号。
-    - "etf_narratives": 必须是【纯字符串数组】。针对单只ETF，只需两三句客观讲解数据，绝对不瞎猜！无表情。
+    【输出要求】：必须返回合法的 JSON，精确包含以下 5 个字段：
+    - "video_intro": 视频开场白。只需1到2句（20-30字），极简概括。英文写 E T F、A T R。
+    - "etf_narratives": 🚨 必须是一个【纯字符串数组】。针对单只ETF只需两三句客观讲解数据，绝对不瞎猜！
     - "social_title": 爆款推文标题（20字内，带emoji）。
-    - "social_body": 排版精美、多用emoji的推文正文。客观复盘。文末加上：想白嫖全天候量化信号，评论区见。
-    - "cover_html": 完整的 HTML5+CSS 代码字符串。
+    - "social_body": 排版精美的推文正文。多用emoji，客观复盘。文末引流：想白嫖量化信号，评论区见。
+    - "cover_html": 这是一段完整的 HTML5+CSS 代码字符串。
          * 尺寸：适配 1920x1080 电脑宽屏。
-         * 🚨 审美死命令：绝对禁止使用黑色或暗黑背景！必须使用【极致明亮、干净的高级科技风】。背景使用纯白、浅灰、浅蓝或浅金色的高级渐变。排版要像苹果官网一样有大面积留白。数据面板使用带淡淡阴影的白色圆角卡片。
-         * 内容：包含【{time_label}量化雷达】大标题，以及用清爽的大字号列出前三名ETF名称和读数。字体强制使用 Microsoft YaHei。
+         * 🚨 审美死命令：必须使用【明亮、干净、通透】的浅色系背景（如白、浅金、天蓝渐变），坚决弃用暗黑系！
+         * 🚨 排版死命令：整个页面的标题、数据卡片、文字【必须绝对完美居中对齐】（使用 display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; width: 100vw;）。
+         * 内容：包含【{time_label}量化雷达】大标题，以及并排排列的前三名ETF名称和读数卡片。字体使用 Microsoft YaHei。
     """
 
     ds_host = "https://" + "api.deepseek.com"
     url = f"{ds_host}/chat/completions"
-    
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
-    }
-    
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
     payload = {
         "model": "deepseek-chat",
         "messages": [
-            {"role": "system", "content": "你是量化专家兼苹果风视觉设计师。严格返回 JSON，视觉必须明亮通透，文案极简客观。"},
+            {"role": "system", "content": "你是量化专家兼设计师。必须返回严格居中、背景明亮的HTML封面设计的 JSON。"},
             {"role": "user", "content": prompt}
         ],
         "response_format": {"type": "json_object"},
-        "temperature": 0.2  # 极低温度，防止它乱发散
+        "temperature": 0.3 
     }
 
     last_error = ""
     for attempt in range(3):
         try:
-            print(f"🔄 正在呼叫 DeepSeek 引擎 (第{attempt+1}次尝试)...")
+            print(f"🔄 正在呼叫 DeepSeek 极简导演引擎 (第{attempt+1}次尝试)...")
             response = requests.post(url, json=payload, headers=headers, timeout=90)
             response.raise_for_status()
-            
             raw_text = response.json()['choices'][0]['message']['content']
-            
             clean_text = re.sub(r"^```json\s*", "", raw_text, flags=re.IGNORECASE)
             clean_text = re.sub(r"^```\s*", "", clean_text, flags=re.IGNORECASE)
             clean_text = re.sub(r"\s*```$", "", clean_text, flags=re.IGNORECASE)
-            
-            result = json.loads(clean_text)
-            print(f"✅ DeepSeek 极简明亮封面与文案设计完成！")
-            return result
-            
-        except requests.exceptions.HTTPError as e:
-            last_error = str(e)
-            print(f"⚠️ DeepSeek 请求拒绝 (状态码: {e.response.status_code})。")
-            time.sleep(3)
-        except json.JSONDecodeError:
-            print(f"⚠️ DeepSeek 未按规范输出 JSON，废弃重试...")
-            time.sleep(3)
+            return json.loads(clean_text)
         except Exception as e:
             last_error = str(e)
-            print(f"⚠️ 网络连接异常: {e}，重试中...")
             time.sleep(3)
 
     print(f"❌ 致命错误：DeepSeek API 请求失败: {last_error}")
     sys.exit(1)
 
 async def main():
-    print(f"🚀 开始执行【明亮宽屏 + 顶部两倍放大快扫 + 精准片尾】工作流... {NOW}")
+    print(f"🚀 开始执行【物理引擎运镜 + 宽屏高亮 + 极简干脆】工作流... {NOW}")
     
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(
-            viewport={'width': 1920, 'height': 1080}, 
-            is_mobile=False,
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            viewport={'width': 1920, 'height': 1080}, is_mobile=False,
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
         )
         
         tv_session = os.getenv('TV_SESSION_ID', '').strip()
@@ -168,25 +203,18 @@ async def main():
             await page.goto(TARGET_URL, wait_until="domcontentloaded")
             data_loaded = False
             for _ in range(20):
-                page_text = await page.evaluate("document.body.innerText")
-                if re.search(r'\b(5\d{5}|1\d{5})\b', page_text):
+                if re.search(r'\b(5\d{5}|1\d{5})\b', await page.evaluate("document.body.innerText")):
                     data_loaded = True
                     break
                 await page.wait_for_timeout(1000)
-                
-            if not data_loaded:
-                print("🛑 网页加载超时，未能在20秒内渲染出有效数据。")
-                await browser.close()
-                sys.exit(1)
-
+            if not data_loaded: sys.exit(1)
             await page.wait_for_timeout(2000)
             await page.screenshot(path="ss_main.png")
             
             etf_list = []
-            row_locators = page.locator("tr, .el-table__row, .row, li")
-            for i in range(await row_locators.count()):
+            for i in range(await page.locator("tr, .el-table__row, .row, li").count()):
                 if len(etf_list) >= 4: break
-                text = re.sub(r'[\t\r\n]+', '\n', await row_locators.nth(i).inner_text())
+                text = re.sub(r'[\t\r\n]+', '\n', await page.locator("tr, .el-table__row, .row, li").nth(i).inner_text())
                 lines = [line.strip() for line in text.split('\n') if line.strip()]
                 code = next((re.search(r'\b(5\d{5}|1\d{5})\b', l).group(1) for l in lines if re.search(r'\b(5\d{5}|1\d{5})\b', l)), None)
                 if code:
@@ -196,21 +224,15 @@ async def main():
                         change = pcts[1] if not IS_MIDDAY and len(pcts) >= 2 else pcts[0]
                         if not any(e['code'] == code for e in etf_list):
                             etf_list.append({"name": name, "code": code, "change": change})
-            if not etf_list:
-                raise Exception("未解析到任何ETF数据条目")
         except Exception as e:
-            print(f"🛑 数据抓取失败，停止生成。({e})")
-            await browser.close()
             sys.exit(1)
 
-        print("🎭 正在调度 AI 专家进行自由明亮创作...")
+        print("🎭 正在调度 AI 专家生成明亮居中封面与解说词...")
         ai_script = call_ai_director(etf_list, TIME_LABEL)
-        
         global SELECTED_HOOK
         SELECTED_HOOK = ai_script['social_title']
         
-        print("🎨 正在渲染 AI 生成的 1080P 明亮宽屏封面...")
-        await page.set_content(ai_script.get('cover_html', '<html><body style="background:white;color:black;"><h1>封面生成异常</h1></body></html>'))
+        await page.set_content(ai_script.get('cover_html', '<html><body><h1>生成异常</h1></body></html>'))
         await page.wait_for_timeout(2000) 
         await page.screenshot(path="cover_image.png")
 
@@ -235,154 +257,102 @@ async def main():
         await page.wait_for_timeout(1000)
         await page.screenshot(path="disclaimer.png")
 
-        # 🚨 升级 1：前端直接缩放 115% 并固定左上角，物理切除 TradingView 边框！
-        print("🌐 正在抓取去边框的 16:9 TradingView 宽屏图表 (115% 缩放左上对齐)...")
-        clean_css = """
-            .layout__area--top, .layout__area--left, .layout__area--right, .layout__area--bottom, [data-name='widgetbar'], #widgetbar, .widgetbar-wrap { display: none !important; } 
-            .layout__area--center { 
-                position: fixed !important; top: 0 !important; left: 0 !important; 
-                width: 100vw !important; height: 100vh !important; z-index: 9999 !important; 
-                transform-origin: top left !important; 
-                transform: scale(1.15) !important; 
-            }
-        """
-        base_chart_url = TV_CHART_URL.rstrip('/')
+        print("🌐 正在抓取 115% 缩放去边框 TV 图表...")
+        clean_css = ".layout__area--top, .layout__area--left, .layout__area--right, .layout__area--bottom, [data-name='widgetbar'], #widgetbar, .widgetbar-wrap { display: none !important; } .layout__area--center { position: fixed !important; top: 0 !important; left: 0 !important; width: 100vw !important; height: 100vh !important; z-index: 9999 !important; transform-origin: top left !important; transform: scale(1.15) !important; }"
         target_interval = "180" if IS_MIDDAY else "1D"
-        suffix = "3h" if IS_MIDDAY else "1d"
-        
         for i, etf in enumerate(etf_list):
             symbol = get_tv_symbol(etf['code'])
-            await page.goto(f"{base_chart_url}/?symbol={symbol}&interval={target_interval}", wait_until="domcontentloaded", timeout=60000)
+            await page.goto(f"{TV_CHART_URL.rstrip('/')}/?symbol={symbol}&interval={target_interval}", wait_until="domcontentloaded", timeout=60000)
             await page.add_style_tag(content=clean_css)
             await page.evaluate("window.dispatchEvent(new Event('resize'));")
             await page.wait_for_timeout(5000)
-            await page.screenshot(path=f"ss_etf_{i}_{suffix}.png")
-
+            await page.screenshot(path=f"ss_etf_{i}.png")
         await browser.close()
 
-    print("🎵 正在合成极简口语化配音...")
+    print("🎵 正在合成配音与物理运镜序列...")
+    video_segments = []
+    audio_segments = []
+
+    # 1. 封面与监控页静止段
+    create_static_video("cover_image.png", "seg_cover.mp4", 1.5)
+    video_segments.append("seg_cover.mp4")
+    
+    create_static_video("ss_main.png", "seg_main_static.mp4", 1.0)
+    video_segments.append("seg_main_static.mp4")
+
     active_intro = clean_for_tts(ai_script['video_intro'])
     await safe_generate_tts(active_intro, "audio_intro.mp3")
     dur_intro = get_audio_duration("audio_intro.mp3")
     
-    intro_visual_total = max(8.000, dur_intro)
-    if dur_intro < intro_visual_total:
-        subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", str(intro_visual_total - dur_intro), "intro_pad.mp3"])
-        with open("intro_audio_list.txt", "w") as f: f.write("file 'audio_intro.mp3'\nfile 'intro_pad.mp3'\n")
-        subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "intro_audio_list.txt", "-c", "copy", "final_intro.mp3"])
+    remain_zoom_time = max(8.0, dur_intro) - 2.5
+    if dur_intro < max(8.0, dur_intro):
+        subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", str(max(8.0, dur_intro) - dur_intro), "intro_pad.mp3"])
+        with open("i_audio.txt", "w") as f: f.write("file 'audio_intro.mp3'\nfile 'intro_pad.mp3'\n")
+        subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "i_audio.txt", "-c", "copy", "seg_audio_intro.mp3"])
     else:
-        subprocess.run(["ffmpeg", "-y", "-i", "audio_intro.mp3", "-c", "copy", "final_intro.mp3"])
-        intro_visual_total = dur_intro
+        shutil.copy("audio_intro.mp3", "seg_audio_intro.mp3")
+    audio_segments.append("seg_audio_intro.mp3")
 
-    audio_files = ["final_intro.mp3"]
-    image_timeline = [
-        "file 'cover_image.png'\nduration 1.500\n",
-        "file 'ss_main.png'\nduration 1.000\n"
-    ]
-    remain_zoom_time = intro_visual_total - 2.500
+    # 2. 监控大盘运镜 (上方放大 -> 快扫)
+    print("🎬 正在使用物理引擎渲染大盘运镜...")
+    create_zoom_video("ss_main.png", "seg_main_zoom.mp4", remain_zoom_time, zoom_type='main')
+    video_segments.append("seg_main_zoom.mp4")
 
-    # 🚨 升级 2：上方精确居中定格放大 2 倍 ➡️ 极速下扫
-    print("🎬 正在使用 FFmpeg 渲染【上方居中放大2倍 -> 极速下扫】分镜...")
-    zoom_fps = 30
-    zoom_frames = int(remain_zoom_time * zoom_fps)
-    
-    # z: 前60帧（2秒）平滑放大到2倍
-    # x: 保持画面水平居中
-    # y: 前60帧锁定为0（页面最顶端），60帧过后每帧向下暴移 25 像素
-    vf_filter = (
-        f"zoompan=z='min(1+(in/60), 2.0)':"
-        f"d={zoom_frames}:"
-        f"x='iw/2-(iw/zoom/2)':"
-        f"y='if(lte(in,60), 0, min((in-60)*25, ih-ih/zoom))':"
-        f"s=1920x1080"
-    )
-
-    zoom_cmd = [
-        "ffmpeg", "-y", "-loop", "1", "-i", "ss_main.png",
-        "-vf", vf_filter,
-        "-t", str(remain_zoom_time),
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(zoom_fps), "ss_main_zoomed.mp4"
-    ]
-    subprocess.run(zoom_cmd, check=True)
-    image_timeline.append(f"file 'ss_main_zoomed.mp4'\nduration {remain_zoom_time:.3f}\n")
-
+    # 3. TV图表运镜 (平滑推进)
     for i, etf in enumerate(etf_list):
-        if i < len(ai_script['etf_narratives']):
-            etf_text = clean_for_tts(ai_script['etf_narratives'][i])
-        else:
-            etf_text = f"来看{etf['name']}的客观走势。"
-            
-        etf_audio = f"audio_etf_{i}.mp3"
-        await safe_generate_tts(etf_text, etf_audio)
+        etf_text = clean_for_tts(ai_script['etf_narratives'][i]) if i < len(ai_script['etf_narratives']) else f"来看{etf['name']}走势。"
+        audio_name = f"seg_audio_etf_{i}.mp3"
+        await safe_generate_tts(etf_text, audio_name)
         await asyncio.sleep(1)
+        dur_etf = get_audio_duration(audio_name)
+        audio_segments.append(audio_name)
         
-        dur_etf = get_audio_duration(etf_audio)
-        img_name = f"ss_etf_{i}_3h.png" if IS_MIDDAY else f"ss_etf_{i}_1d.png"
-        image_timeline.append(f"file '{img_name}'\nduration {dur_etf:.3f}\n")
-        audio_files.append(etf_audio)
+        print(f"🎬 正在使用物理引擎渲染 TV 图表 {etf['name']} 的呼吸推镜...")
+        video_name = f"seg_video_etf_{i}.mp4"
+        create_zoom_video(f"ss_etf_{i}.png", video_name, dur_etf, zoom_type='tv')
+        video_segments.append(video_name)
 
-    # 🚨 升级 3：语音结束立刻切断，无丝毫静音残留
-    await safe_generate_tts(OUTRO_TEXT, "audio_outro.mp3")
-    dur_outro = get_audio_duration("audio_outro.mp3")
-    image_timeline.append(f"file 'disclaimer.png'\nduration {dur_outro:.3f}\n")
-    image_timeline.append(f"file 'disclaimer.png'\n") # EOF 标记
-    audio_files.append("audio_outro.mp3")
-    # 完全移除了之前的 2 秒静音生成和拼接
+    # 4. 完美同步片尾 (无留白)
+    await safe_generate_tts(OUTRO_TEXT, "seg_audio_outro.mp3")
+    dur_outro = get_audio_duration("seg_audio_outro.mp3")
+    audio_segments.append("seg_audio_outro.mp3")
+    create_static_video("disclaimer.png", "seg_video_outro.mp4", dur_outro)
+    video_segments.append("seg_video_outro.mp4")
 
-    with open("video_input.txt", "w") as f: f.writelines(image_timeline)
-    with open("audio_input.txt", "w") as f: f.writelines([f"file '{a}'\n" for a in audio_files])
+    print("🎬 正在无缝拼装 1080P 音视频序列...")
+    with open("list_v.txt", "w") as f: f.writelines([f"file '{v}'\n" for v in video_segments])
+    with open("list_a.txt", "w") as f: f.writelines([f"file '{a}'\n" for a in audio_segments])
+    
+    subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "list_v.txt", "-c:v", "copy", "temp_v.mp4"], check=True)
+    subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "list_a.txt", "-c:a", "copy", "temp_a.mp3"], check=True)
 
-    print("🎬 正在拼装 1920x1080 最终视频序列...")
     final_video = f"etf_report_{FILE_SUFFIX}.mp4"
-    subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", "cover_image.png", "-t", "1.5", "-c:v", "libx264", "-r", "30", "-pix_fmt", "yuv420p", "p1.mp4"], check=True)
-    subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", "ss_main.png", "-t", "1.0", "-c:v", "libx264", "-r", "30", "-pix_fmt", "yuv420p", "p2.mp4"], check=True)
-    
-    with open("video_backend.txt", "w") as f: f.writelines(image_timeline[3:])
-    subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "video_backend.txt", "-c:v", "libx264", "-r", "30", "-pix_fmt", "yuv420p", "p4.mp4"], check=True)
-    
-    with open("final_stitch.txt", "w") as f: f.write("file 'p1.mp4'\nfile 'p2.mp4'\nfile 'ss_main_zoomed.mp4'\nfile 'p4.mp4'\n")
-    subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "final_stitch.txt", "-c:v", "copy", "pre_final_video.mp4"], check=True)
-
     if os.path.exists("bgm.mp3"):
-        subprocess.run(["ffmpeg", "-y", "-i", "pre_final_video.mp4", "-f", "concat", "-safe", "0", "-i", "audio_input.txt", "-stream_loop", "-1", "-i", "bgm.mp3", "-filter_complex", "[1:a]volume=1.0[a1];[2:a]volume=0.15[a2];[a1][a2]amix=inputs=2:duration=first:dropout_transition=2[a]", "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", final_video], check=True)
+        subprocess.run(["ffmpeg", "-y", "-i", "temp_v.mp4", "-i", "temp_a.mp3", "-stream_loop", "-1", "-i", "bgm.mp3", "-filter_complex", "[1:a]volume=1.0[a1];[2:a]volume=0.15[a2];[a1][a2]amix=inputs=2:duration=first:dropout_transition=2[a]", "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", final_video], check=True)
     else:
-        subprocess.run(["ffmpeg", "-y", "-i", "pre_final_video.mp4", "-f", "concat", "-safe", "0", "-i", "audio_input.txt", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", final_video], check=True)
-    
-    for tmp in ["p1.mp4", "p2.mp4", "p4.mp4", "ss_main_zoomed.mp4", "pre_final_video.mp4"]:
-        if os.path.exists(tmp): os.remove(tmp)
+        subprocess.run(["ffmpeg", "-y", "-i", "temp_v.mp4", "-i", "temp_a.mp3", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", final_video], check=True)
         
     print("✈️ 正在推送到 Telegram 接收端...")
     bot_token = os.getenv('TELEGRAM_BOT_TOKEN', '').strip()
     chat_id = os.getenv('TELEGRAM_CHAT_ID', '').strip()
+    xhs_text = f"📝 【明亮高燃运镜版】\n\n💡 {ai_script['social_title']}\n\n{ai_script['social_body']}\n\n--- 🎬 视频文案备份 ---\n{ai_script['video_intro']}"
     
-    xhs_text = f"📝 【明亮极简宽屏版】\n\n💡 {ai_script['social_title']}\n\n{ai_script['social_body']}\n\n--- 🎬 视频文案备份 ---\n{ai_script['video_intro']}"
-    msg_title = ai_script['social_title']
-
-    tg_host = "https://" + "api.telegram.org/bot"
-
     try:
-        res_text = requests.post(f"{tg_host}{bot_token}/sendMessage", data={'chat_id': chat_id, 'text': xhs_text})
-        res_text.raise_for_status()
-        
+        requests.post(f"[https://api.telegram.org/bot](https://api.telegram.org/bot){bot_token}/sendMessage", data={'chat_id': chat_id, 'text': xhs_text}).raise_for_status()
         with open(final_video, 'rb') as vf:
-            res_video = requests.post(f"{tg_host}{bot_token}/sendVideo", data={'chat_id': chat_id, 'caption': f"🎬 {msg_title}"}, files={'video': vf}, timeout=120)
-            res_video.raise_for_status()
+            requests.post(f"[https://api.telegram.org/bot](https://api.telegram.org/bot){bot_token}/sendVideo", data={'chat_id': chat_id, 'caption': f"🎬 {ai_script['social_title']}"}, files={'video': vf}, timeout=120).raise_for_status()
 
-        img_list = ["cover_image.png", "ss_main.png"] + [f"ss_etf_{i}_{suffix}.png" for i in range(len(etf_list))] + ["disclaimer.png"]
+        img_list = ["cover_image.png", "ss_main.png", "disclaimer.png"] + [f"ss_etf_{i}.png" for i in range(len(etf_list))]
         for i in range(0, len(img_list), 10):
             chunk, media_group, files = img_list[i:i+10], [], {}
             for idx, img in enumerate(chunk):
                 if os.path.exists(img):
                     files[f"f{idx}"] = open(img, "rb")
                     media_group.append({"type": "photo", "media": f"attach://f{idx}"})
-            
-            res_media = requests.post(f"{tg_host}{bot_token}/sendMediaGroup", data={'chat_id': chat_id, 'media': json.dumps(media_group)}, files=files, timeout=60)
-            res_media.raise_for_status()
-            
+            requests.post(f"[https://api.telegram.org/bot](https://api.telegram.org/bot){bot_token}/sendMediaGroup", data={'chat_id': chat_id, 'media': json.dumps(media_group)}, files=files, timeout=60).raise_for_status()
             for f in files.values(): f.close()
-            
     except Exception as e:
-        print(f"🛑 推送至 Telegram 失败！原因: {e}")
+        print(f"🛑 推送至 Telegram 失败: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":
