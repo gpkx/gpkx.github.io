@@ -50,6 +50,13 @@ async def safe_generate_tts(text, filename, retries=3):
 
 def clean_for_tts(text):
     if not text: return ""
+    
+    # 🛡️ 物理装甲：如果 AI 智障返回了字典/对象，强行提取里面的字符串
+    if isinstance(text, dict):
+        text = "，".join([str(v) for v in text.values() if isinstance(v, str)])
+    elif not isinstance(text, str):
+        text = str(text)
+        
     text = re.sub(r'[\U00010000-\U0010ffff]', '', text)
     text = text.replace('*', '').replace('_', '').replace('#', '').replace('`', '')
     text = re.sub(r'(?i)\betf\b', ' E T F ', text)
@@ -58,7 +65,7 @@ def clean_for_tts(text):
     return text.strip()
 
 # ==========================================
-# 🔥 核心升级：高亮明快封面 + 客观极简文案
+# 🔥 核心升级：高亮明快封面 + 客观极简文案 + 防崩溃装甲
 # ==========================================
 def call_ai_director(etf_list, time_label):
     api_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
@@ -79,7 +86,7 @@ def call_ai_director(etf_list, time_label):
 
     【输出要求】：必须返回合法的 JSON，精确包含以下 5 个字段：
     - "video_intro": 短视频开场口播。只需1到2句（20-30字），极简概括今日盘面即可，拒绝长篇大论。英文写 E T F、A T R，无表情符号。
-    - "etf_narratives": 数组，包含{len(etf_list)}个元素的短评。针对单只ETF，只需两三句客观讲解数据，绝对不要进行任何额外猜测。无表情符号。
+    - "etf_narratives": 🚨 必须是一个【纯字符串数组】（格式示例：["短评1", "短评2"]），严格包含{len(etf_list)}个字符串元素。数组内部绝对不能是字典或对象！针对单只ETF，只需两三句客观讲解数据，绝对不要进行任何额外猜测。无表情符号。
     - "social_title": 小红书/公众号爆款标题（20字内，带emoji）。
     - "social_body": 排版精美、分段清晰的推文正文。多用emoji，客观复盘真实数据。文末引流：想白嫖全天候量化信号，评论区见。
     - "cover_html": 这是一段完整的 HTML5+CSS 代码字符串。
@@ -104,7 +111,7 @@ def call_ai_director(etf_list, time_label):
             {"role": "user", "content": prompt}
         ],
         "response_format": {"type": "json_object"},
-        "temperature": 0.3  # 进一步降低温度，防止 AI 废话和发散猜测
+        "temperature": 0.3 
     }
 
     last_error = ""
@@ -274,14 +281,10 @@ async def main():
     ]
     remain_zoom_time = intro_visual_total - 2.500
 
-    # 🚨 终极运镜改造：抛弃温和放大，执行左侧锚定、强力 3 倍放大特效！
     print("🎬 正在使用 FFmpeg 渲染强力左侧 3 倍推进特写...")
     zoom_fps = 30
     zoom_frames = int(remain_zoom_time * zoom_fps)
     
-    # z='min(zoom+0.03, 3.0)'：每帧急剧放大，最高锁定在3倍大小
-    # x='iw*0.05'：镜头死死锚定在画面左侧5%的位置，确保最左边的 ETF 名称绝不出画
-    # y='ih/2-(ih/zoom/2)'：保持垂直居中平滑追踪
     vf_filter = f"zoompan=z='min(zoom+0.03, 3.0)':d={zoom_frames}:x='iw*0.05':y='ih/2-(ih/zoom/2)':s=1920x1080"
 
     zoom_cmd = [
