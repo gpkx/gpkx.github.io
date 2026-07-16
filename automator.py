@@ -354,7 +354,8 @@ async def main():
         
         print(f"🎬 正在渲染 {etf['name']} 的呼吸推镜及字幕烧录...")
         video_name = f"seg_video_etf_{i}.mp4"
-        create_zoom_video(f"ss_etf_{i}.png", video_name, dur_etf, zoom_type='tv', srt_file=srt_name)
+        # 🚨 修复参数：去掉 zoom_type，传入 srt_file
+        create_zoom_video(f"ss_etf_{i}.png", video_name, dur_etf, srt_file=srt_name)
         video_segments.append(video_name)
 
     # 3. 极速片尾序列
