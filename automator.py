@@ -64,7 +64,7 @@ def clean_for_tts(text):
     return text.strip()
 
 # ==========================================
-# 🔥 核心升级：高亮明快封面 + 客观极简文案 + 防崩溃装甲
+# 🔥 核心升级：强绑定明亮审美 + 极简客观文案
 # ==========================================
 def call_ai_director(etf_list, time_label):
     api_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
@@ -73,26 +73,24 @@ def call_ai_director(etf_list, time_label):
         sys.exit(1)
 
     prompt = f"""
-    你现在是顶级的A股量化交易专家兼爆款自媒体视觉设计师。你的任务是接管今天【{time_label}】的短视频极简脚本，以及设计一张 1920x1080 的明亮系宽屏封面。作品必须科学、客观、极其清爽。
+    你现在是顶级的A股量化交易专家兼爆款自媒体高级视觉设计师。
     
-    【今日核心触发数据（绝对事实，不可篡改）】：
+    【今日核心触发数据（绝对事实）】：
     {json.dumps(etf_list, ensure_ascii=False, indent=2)}
 
     🚨 【最高指令：极简客观与绝对服从】 🚨
-    1. 你的分析必须 100% 依赖上方 JSON 里的 ETF 名称和 `change`（ATR异动指标）数值。
-    2. 严禁在文案里编造5日均线、MACD、KDJ等垃圾指标，严禁对未来走势进行额外猜测和主观推演。
-    3. 语言必须极其精炼，少即是多！
+    1. 严禁编造5日均线、MACD等任何未提供的数据，只能围绕上面的 ETF 名称和 `change` 数值客观解说！
+    2. 语言必须极其精炼，少即是多！
 
-    【输出要求】：必须返回合法的 JSON，精确包含以下 5 个字段：
-    - "video_intro": 短视频开场口播。只需1到2句（20-30字），极简概括今日盘面即可，拒绝长篇大论。英文写 E T F、A T R，无表情符号。
-    - "etf_narratives": 🚨 必须是一个【纯字符串数组】（格式示例：["短评1", "短评2"]），严格包含{len(etf_list)}个字符串元素。数组内部绝对不能是字典或对象！针对单只ETF，只需两三句客观讲解数据，绝对不要进行任何额外猜测。无表情符号。
-    - "social_title": 小红书/公众号爆款标题（20字内，带emoji）。
-    - "social_body": 排版精美、分段清晰的推文正文。多用emoji，客观复盘真实数据。文末引流：想白嫖全天候量化信号，评论区见。
-    - "cover_html": 这是一段完整的 HTML5+CSS 代码字符串。
+    【输出要求】：返回合法的 JSON，精确包含以下 5 个字段：
+    - "video_intro": 视频开场白。只需1到2句（20-30字）极简概括。英文写 E T F、A T R。无表情符号。
+    - "etf_narratives": 必须是【纯字符串数组】。针对单只ETF，只需两三句客观讲解数据，绝对不瞎猜！无表情。
+    - "social_title": 爆款推文标题（20字内，带emoji）。
+    - "social_body": 排版精美、多用emoji的推文正文。客观复盘。文末加上：想白嫖全天候量化信号，评论区见。
+    - "cover_html": 完整的 HTML5+CSS 代码字符串。
          * 尺寸：适配 1920x1080 电脑宽屏。
-         * 风格要求：必须使用明亮、通透、积极的浅色系背景（如纯白、浅金、天蓝、科技银灰等渐变），坚决弃用暗黑系沉闷色调！保持视觉上的清爽和现代高级感。
-         * 内容：包含【{time_label}量化雷达】大标题，以及排版极具冲击力的前三名ETF名称和读数。
-         * 限制：纯代码实现，不可引入外部网络图片。字体使用 Microsoft YaHei，字号要大且醒目。
+         * 🚨 审美死命令：绝对禁止使用黑色或暗黑背景！必须使用【极致明亮、干净的高级科技风】。背景使用纯白、浅灰、浅蓝或浅金色的高级渐变。排版要像苹果官网一样有大面积留白。数据面板使用带淡淡阴影的白色圆角卡片。
+         * 内容：包含【{time_label}量化雷达】大标题，以及用清爽的大字号列出前三名ETF名称和读数。字体强制使用 Microsoft YaHei。
     """
 
     ds_host = "https://" + "api.deepseek.com"
@@ -106,17 +104,17 @@ def call_ai_director(etf_list, time_label):
     payload = {
         "model": "deepseek-chat",
         "messages": [
-            {"role": "system", "content": "你是量化专家兼视觉设计师。你的输出必须是纯粹的 JSON 格式，且绝对客观不捏造指标，视觉追求明亮极简。"},
+            {"role": "system", "content": "你是量化专家兼苹果风视觉设计师。严格返回 JSON，视觉必须明亮通透，文案极简客观。"},
             {"role": "user", "content": prompt}
         ],
         "response_format": {"type": "json_object"},
-        "temperature": 0.3 
+        "temperature": 0.2  # 极低温度，防止它乱发散
     }
 
     last_error = ""
     for attempt in range(3):
         try:
-            print(f"🔄 正在呼叫 DeepSeek 极简导演引擎 (第{attempt+1}次尝试)...")
+            print(f"🔄 正在呼叫 DeepSeek 引擎 (第{attempt+1}次尝试)...")
             response = requests.post(url, json=payload, headers=headers, timeout=90)
             response.raise_for_status()
             
@@ -127,26 +125,26 @@ def call_ai_director(etf_list, time_label):
             clean_text = re.sub(r"\s*```$", "", clean_text, flags=re.IGNORECASE)
             
             result = json.loads(clean_text)
-            print(f"✅ DeepSeek 极简客观文案与明亮封面设计完成！")
+            print(f"✅ DeepSeek 极简明亮封面与文案设计完成！")
             return result
             
         except requests.exceptions.HTTPError as e:
             last_error = str(e)
-            print(f"⚠️ DeepSeek 接口请求拒绝 (状态码: {e.response.status_code})。")
+            print(f"⚠️ DeepSeek 请求拒绝 (状态码: {e.response.status_code})。")
             time.sleep(3)
         except json.JSONDecodeError:
             print(f"⚠️ DeepSeek 未按规范输出 JSON，废弃重试...")
             time.sleep(3)
         except Exception as e:
             last_error = str(e)
-            print(f"⚠️ DeepSeek 网络连接异常: {e}，重试中...")
+            print(f"⚠️ 网络连接异常: {e}，重试中...")
             time.sleep(3)
 
-    print(f"❌ 致命错误：DeepSeek API 请求失败，最后报错: {last_error}")
+    print(f"❌ 致命错误：DeepSeek API 请求失败: {last_error}")
     sys.exit(1)
 
 async def main():
-    print(f"🚀 开始执行【宽屏 110% 裁切 + 上端放大 2 倍极速下扫】工作流... {NOW}")
+    print(f"🚀 开始执行【明亮宽屏 + 顶部两倍放大快扫 + 精准片尾】工作流... {NOW}")
     
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
@@ -177,7 +175,7 @@ async def main():
                 await page.wait_for_timeout(1000)
                 
             if not data_loaded:
-                print("🛑 网页加载超时，未能在20秒内渲染出有效的大盘 ETF 数据。")
+                print("🛑 网页加载超时，未能在20秒内渲染出有效数据。")
                 await browser.close()
                 sys.exit(1)
 
@@ -212,7 +210,7 @@ async def main():
         SELECTED_HOOK = ai_script['social_title']
         
         print("🎨 正在渲染 AI 生成的 1080P 明亮宽屏封面...")
-        await page.set_content(ai_script.get('cover_html', '<html><body style="background:white;color:black;"><h1>设计生成失败，应用极简模式</h1></body></html>'))
+        await page.set_content(ai_script.get('cover_html', '<html><body style="background:white;color:black;"><h1>封面生成异常</h1></body></html>'))
         await page.wait_for_timeout(2000) 
         await page.screenshot(path="cover_image.png")
 
@@ -237,15 +235,15 @@ async def main():
         await page.wait_for_timeout(1000)
         await page.screenshot(path="disclaimer.png")
 
-        # 🚨 升级 1：前端直接缩放 110% 并固定左上角，物理切除 TradingView 边框！
-        print("🌐 正在抓取去边框的 16:9 TradingView 宽屏图表 (110% 缩放左上对齐)...")
+        # 🚨 升级 1：前端直接缩放 115% 并固定左上角，物理切除 TradingView 边框！
+        print("🌐 正在抓取去边框的 16:9 TradingView 宽屏图表 (115% 缩放左上对齐)...")
         clean_css = """
             .layout__area--top, .layout__area--left, .layout__area--right, .layout__area--bottom, [data-name='widgetbar'], #widgetbar, .widgetbar-wrap { display: none !important; } 
             .layout__area--center { 
                 position: fixed !important; top: 0 !important; left: 0 !important; 
                 width: 100vw !important; height: 100vh !important; z-index: 9999 !important; 
                 transform-origin: top left !important; 
-                transform: scale(1.1) !important; 
+                transform: scale(1.15) !important; 
             }
         """
         base_chart_url = TV_CHART_URL.rstrip('/')
@@ -283,19 +281,19 @@ async def main():
     ]
     remain_zoom_time = intro_visual_total - 2.500
 
-    # 🚨 升级 2：上方定格放大 2 倍 ➡️ 暴推下扫
-    print("🎬 正在使用 FFmpeg 渲染【上方放大2倍 -> 快速下扫】分镜...")
+    # 🚨 升级 2：上方精确居中定格放大 2 倍 ➡️ 极速下扫
+    print("🎬 正在使用 FFmpeg 渲染【上方居中放大2倍 -> 极速下扫】分镜...")
     zoom_fps = 30
     zoom_frames = int(remain_zoom_time * zoom_fps)
     
-    # z: 60帧（2秒）内放大到2倍
-    # x: 保持中心居中
-    # y: 前60帧保持在最顶端(0)，60帧后每帧极速向下移动20像素直到触底
+    # z: 前60帧（2秒）平滑放大到2倍
+    # x: 保持画面水平居中
+    # y: 前60帧锁定为0（页面最顶端），60帧过后每帧向下暴移 25 像素
     vf_filter = (
         f"zoompan=z='min(1+(in/60), 2.0)':"
         f"d={zoom_frames}:"
         f"x='iw/2-(iw/zoom/2)':"
-        f"y='if(lte(in,60), 0, min((in-60)*20, ih-ih/zoom))':"
+        f"y='if(lte(in,60), 0, min((in-60)*25, ih-ih/zoom))':"
         f"s=1920x1080"
     )
 
@@ -323,13 +321,13 @@ async def main():
         image_timeline.append(f"file '{img_name}'\nduration {dur_etf:.3f}\n")
         audio_files.append(etf_audio)
 
+    # 🚨 升级 3：语音结束立刻切断，无丝毫静音残留
     await safe_generate_tts(OUTRO_TEXT, "audio_outro.mp3")
     dur_outro = get_audio_duration("audio_outro.mp3")
     image_timeline.append(f"file 'disclaimer.png'\nduration {dur_outro:.3f}\n")
+    image_timeline.append(f"file 'disclaimer.png'\n") # EOF 标记
     audio_files.append("audio_outro.mp3")
-    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", "2", "silence_end.mp3"])
-    image_timeline.extend([f"file 'disclaimer.png'\nduration 2.000\n", "file 'disclaimer.png'\n"])
-    audio_files.append("silence_end.mp3")
+    # 完全移除了之前的 2 秒静音生成和拼接
 
     with open("video_input.txt", "w") as f: f.writelines(image_timeline)
     with open("audio_input.txt", "w") as f: f.writelines([f"file '{a}'\n" for a in audio_files])
@@ -357,7 +355,7 @@ async def main():
     bot_token = os.getenv('TELEGRAM_BOT_TOKEN', '').strip()
     chat_id = os.getenv('TELEGRAM_CHAT_ID', '').strip()
     
-    xhs_text = f"📝 【明亮宽屏 + 客观极简版】\n\n💡 {ai_script['social_title']}\n\n{ai_script['social_body']}\n\n--- 🎬 视频文案备份 ---\n{ai_script['video_intro']}"
+    xhs_text = f"📝 【明亮极简宽屏版】\n\n💡 {ai_script['social_title']}\n\n{ai_script['social_body']}\n\n--- 🎬 视频文案备份 ---\n{ai_script['video_intro']}"
     msg_title = ai_script['social_title']
 
     tg_host = "https://" + "api.telegram.org/bot"
