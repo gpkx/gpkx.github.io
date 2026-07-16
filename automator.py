@@ -51,7 +51,6 @@ async def safe_generate_tts(text, filename, retries=3):
 def clean_for_tts(text):
     if not text: return ""
     
-    # 🛡️ 物理装甲：如果 AI 智障返回了字典/对象，强行提取里面的字符串
     if isinstance(text, dict):
         text = "，".join([str(v) for v in text.values() if isinstance(v, str)])
     elif not isinstance(text, str):
@@ -147,7 +146,7 @@ def call_ai_director(etf_list, time_label):
     sys.exit(1)
 
 async def main():
-    print(f"🚀 开始执行【高亮宽屏 + 左侧 3 倍强势暴推】工作流... {NOW}")
+    print(f"🚀 开始执行【高亮宽屏 + 定制三段式运镜 + 极速片尾】工作流... {NOW}")
     
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
@@ -281,11 +280,18 @@ async def main():
     ]
     remain_zoom_time = intro_visual_total - 2.500
 
-    print("🎬 正在使用 FFmpeg 渲染强力左侧 3 倍推进特写...")
+    # 🎬 三段式动态运镜：左上角放大2倍 -> 定格 -> 快速下扫
+    print("🎬 正在使用 FFmpeg 渲染【左上角放大2倍 -> 定格 -> 快速下扫】分镜...")
     zoom_fps = 30
     zoom_frames = int(remain_zoom_time * zoom_fps)
     
-    vf_filter = f"zoompan=z='min(zoom+0.03, 3.0)':d={zoom_frames}:x='iw*0.05':y='ih/2-(ih/zoom/2)':s=1920x1080"
+    vf_filter = (
+        f"zoompan=z='min(1+(in/30), 2.0)':"
+        f"d={zoom_frames}:"
+        f"x='0':"
+        f"y='if(lte(in,60), 0, min((in-60)*12, ih-ih/zoom))':"
+        f"s=1920x1080"
+    )
 
     zoom_cmd = [
         "ffmpeg", "-y", "-loop", "1", "-i", "ss_main.png",
@@ -311,13 +317,13 @@ async def main():
         image_timeline.append(f"file '{img_name}'\nduration {dur_etf:.3f}\n")
         audio_files.append(etf_audio)
 
+    # 🚫 干脆利落的片尾：去除所有静音留白，语音结束即视频结束
     await safe_generate_tts(OUTRO_TEXT, "audio_outro.mp3")
     dur_outro = get_audio_duration("audio_outro.mp3")
     image_timeline.append(f"file 'disclaimer.png'\nduration {dur_outro:.3f}\n")
+    # ffmpeg concat 要求最后一张图补一句不带 duration 的 file
+    image_timeline.append(f"file 'disclaimer.png'\n")
     audio_files.append("audio_outro.mp3")
-    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", "2", "silence_end.mp3"])
-    image_timeline.extend([f"file 'disclaimer.png'\nduration 2.000\n", "file 'disclaimer.png'\n"])
-    audio_files.append("silence_end.mp3")
 
     with open("video_input.txt", "w") as f: f.writelines(image_timeline)
     with open("audio_input.txt", "w") as f: f.writelines([f"file '{a}'\n" for a in audio_files])
