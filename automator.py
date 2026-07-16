@@ -83,7 +83,7 @@ def create_srt(text, duration, filename):
     start_time = "00:00:00,000"
     end_time = format_time(duration)
     
-    # 智能断句，每行最多18个中文字符，保证视频上字幕美观
+    # 智能断句，每行最多18个中文字符
     clean_text = text.replace(' E T F ', 'ETF').replace(' A T R ', 'ATR')
     lines = []
     max_len = 18
@@ -97,7 +97,7 @@ def create_srt(text, duration, filename):
 # ==========================================
 # 🔥 PIL 物理运镜渲染引擎 (带原生字幕烧录)
 # ==========================================
-def create_zoom_video(img_path, output_video, duration, fps=30, srt_file=None):
+def create_zoom_video(img_path, output_video, duration, fps=30, zoom_type='main', srt_file=None):
     frames_dir = f"temp_frames_{os.path.basename(img_path).split('.')[0]}"
     if os.path.exists(frames_dir): shutil.rmtree(frames_dir)
     os.makedirs(frames_dir)
@@ -107,12 +107,27 @@ def create_zoom_video(img_path, output_video, duration, fps=30, srt_file=None):
     total_frames = int(duration * fps)
 
     for i in range(total_frames):
-        # 🚨 TV图表专属运镜：死死锚定最右侧K线，向左平滑放大！
-        progress = i / total_frames
-        zoom = 1.0 + 0.15 * progress # 缓慢放大到 1.15 倍
-        cw, ch = int(w/zoom), int(h/zoom)
-        cx = w - cw # 👈 X轴坐标贴死最右边边界！
-        cy = int((h - ch) / 2) # Y轴居中
+        if zoom_type == 'main':
+            if i <= 60:
+                progress = i / 60.0
+                ease = 1 - (1 - progress)**3
+                zoom = 1.0 + ease * 1.0 
+                cw, ch = int(w/zoom), int(h/zoom)
+                cx = 0 
+                cy = 0 
+            else:
+                zoom = 2.0
+                cw, ch = int(w/2.0), int(h/2.0)
+                cx = 0
+                pan_progress = (i - 60) / (total_frames - 60)
+                cy = int((h - ch) * pan_progress)
+        else:
+            # TV图表运镜：向左拉近放大
+            progress = i / total_frames
+            zoom = 1.0 + 0.15 * progress
+            cw, ch = int(w/zoom), int(h/zoom)
+            cx = w - cw
+            cy = int((h - ch) / 2)
 
         box = (cx, cy, cx + cw, cy + ch)
         frame = img.crop(box).resize((w, h), Image.Resampling.LANCZOS)
@@ -121,8 +136,8 @@ def create_zoom_video(img_path, output_video, duration, fps=30, srt_file=None):
     vf_filters = []
     if srt_file and os.path.exists(srt_file):
         srt_path = srt_file.replace('\\', '\\\\').replace(':', '\\:')
-        # 烧录黑底白字、极具辨识度的硬核字幕
-        vf_filters.append(f"subtitles={srt_path}:force_style='FontSize=28,PrimaryColour=&H00FFFFFF,Outline=3,OutlineColour=&H00000000,MarginV=40'")
+        # 🚨 字幕修改：添加 FontName=Microsoft YaHei，字号改为 14，细边框
+        vf_filters.append(f"subtitles={srt_path}:force_style='FontName=Microsoft YaHei,FontSize=14,PrimaryColour=&H00FFFFFF,Outline=2,OutlineColour=&H00000000,MarginV=30'")
 
     cmd = [
         "ffmpeg", "-y", "-framerate", str(fps), "-i", f"{frames_dir}/frame_%04d.jpg"
@@ -138,7 +153,8 @@ def create_static_video(img_path, output_video, duration, fps=30, srt_file=None)
     vf_filters = []
     if srt_file and os.path.exists(srt_file):
         srt_path = srt_file.replace('\\', '\\\\').replace(':', '\\:')
-        vf_filters.append(f"subtitles={srt_path}:force_style='FontSize=28,PrimaryColour=&H00FFFFFF,Outline=3,OutlineColour=&H00000000,MarginV=40'")
+        # 🚨 字幕修改：添加 FontName=Microsoft YaHei，字号改为 14，细边框
+        vf_filters.append(f"subtitles={srt_path}:force_style='FontName=Microsoft YaHei,FontSize=14,PrimaryColour=&H00FFFFFF,Outline=2,OutlineColour=&H00000000,MarginV=30'")
 
     cmd = [
         "ffmpeg", "-y", "-loop", "1", "-i", img_path, "-t", str(duration)
@@ -211,7 +227,7 @@ def call_ai_director(etf_list, time_label):
     sys.exit(1)
 
 async def main():
-    print(f"🚀 开始执行【4名打榜 + 直飞TV图表 + 霸屏水印 + 同步字幕】工作流... {NOW}")
+    print(f"🚀 开始执行【4名打榜 + 直飞TV图表 + 黑字水印 + 雅黑字幕】工作流... {NOW}")
     
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
@@ -285,7 +301,6 @@ async def main():
         await page.wait_for_timeout(1000)
         await page.screenshot(path="disclaimer.png")
 
-        # 🚨 抛弃监控大盘，开场直飞 TradingView 霸屏图表！
         print("🌐 正在抓取去边框 TV 图表并注入霸气居中水印...")
         clean_css = ".layout__area--top, .layout__area--left, .layout__area--right, .layout__area--bottom, [data-name='widgetbar'], #widgetbar, .widgetbar-wrap { display: none !important; } .layout__area--center { position: fixed !important; top: 0 !important; left: 0 !important; width: 100vw !important; height: 100vh !important; z-index: 9999 !important; transform-origin: top left !important; transform: scale(1.15) !important; }"
         target_interval = "180" if IS_MIDDAY else "1D"
@@ -295,7 +310,7 @@ async def main():
             await page.goto(f"{TV_CHART_URL.rstrip('/')}/?symbol={symbol}&interval={target_interval}", wait_until="domcontentloaded", timeout=60000)
             await page.add_style_tag(content=clean_css)
             
-            # 💡 注入巨无霸居中水印
+            # 🚨 水印修改：黑色、正常雅黑字体、带淡淡白边光晕防重叠
             overlay_js = f"""
             let overlay = document.createElement('div');
             overlay.innerHTML = '{etf['name']}';
@@ -303,10 +318,11 @@ async def main():
             overlay.style.top = '12%';
             overlay.style.left = '50%';
             overlay.style.transform = 'translateX(-50%)';
+            overlay.style.fontFamily = '"Microsoft YaHei", sans-serif';
             overlay.style.fontSize = '130px';
-            overlay.style.fontWeight = '900';
-            overlay.style.color = 'rgba(255, 77, 79, 0.9)'; // 高亮赤红
-            overlay.style.textShadow = '0 8px 30px rgba(0,0,0,0.4), 0 2px 10px rgba(255,255,255,0.8)';
+            overlay.style.fontWeight = 'normal';
+            overlay.style.color = '#000000'; // 纯黑
+            overlay.style.textShadow = '0 0 15px rgba(255, 255, 255, 0.9)'; // 白色光晕描边，防止被K线挡住看不清
             overlay.style.zIndex = '999999';
             overlay.style.letterSpacing = '10px';
             document.body.appendChild(overlay);
@@ -322,7 +338,6 @@ async def main():
     video_segments = []
     audio_segments = []
 
-    # 1. 封面序列
     active_intro = clean_for_tts(ai_script.get('video_intro', ''))
     await safe_generate_tts(active_intro, "audio_intro.mp3")
     dur_intro = get_audio_duration("audio_intro.mp3")
@@ -332,7 +347,6 @@ async def main():
     video_segments.append("seg_cover.mp4")
     audio_segments.append("audio_intro.mp3")
 
-    # 2. TV 图表序列 (向左拉伸推镜)
     ai_narratives = ai_script.get('etf_narratives', [])
     for i, etf in enumerate(etf_list):
         if i < len(ai_narratives):
@@ -340,7 +354,6 @@ async def main():
         else:
             etf_text = f"最后看{etf['name']}的客观走势，{format_quant_voice(etf['change'])}。"
             
-        # 💡 终极引流钩子：死死绑定在最后一个 ETF 的文案末尾！
         if i == len(etf_list) - 1:
             etf_text += f" {PRIVATE_HOOK}"
             
@@ -354,11 +367,9 @@ async def main():
         
         print(f"🎬 正在渲染 {etf['name']} 的呼吸推镜及字幕烧录...")
         video_name = f"seg_video_etf_{i}.mp4"
-        # 🚨 修复参数：去掉 zoom_type，传入 srt_file
-        create_zoom_video(f"ss_etf_{i}.png", video_name, dur_etf, srt_file=srt_name)
+        create_zoom_video(f"ss_etf_{i}.png", video_name, dur_etf, zoom_type='tv', srt_file=srt_name)
         video_segments.append(video_name)
 
-    # 3. 极速片尾序列
     await safe_generate_tts(OUTRO_TEXT, "seg_audio_outro.mp3")
     dur_outro = get_audio_duration("seg_audio_outro.mp3")
     create_srt(OUTRO_TEXT, dur_outro, "sub_outro.srt")
