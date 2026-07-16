@@ -146,7 +146,7 @@ def call_ai_director(etf_list, time_label):
     sys.exit(1)
 
 async def main():
-    print(f"🚀 开始执行【高亮宽屏 + 定制三段式运镜 + 极速片尾】工作流... {NOW}")
+    print(f"🚀 开始执行【宽屏 110% 裁切 + 上端放大 2 倍极速下扫】工作流... {NOW}")
     
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
@@ -237,12 +237,15 @@ async def main():
         await page.wait_for_timeout(1000)
         await page.screenshot(path="disclaimer.png")
 
-        print("🌐 正在抓取真实带指标的 16:9 TradingView 宽屏图表...")
+        # 🚨 升级 1：前端直接缩放 110% 并固定左上角，物理切除 TradingView 边框！
+        print("🌐 正在抓取去边框的 16:9 TradingView 宽屏图表 (110% 缩放左上对齐)...")
         clean_css = """
             .layout__area--top, .layout__area--left, .layout__area--right, .layout__area--bottom, [data-name='widgetbar'], #widgetbar, .widgetbar-wrap { display: none !important; } 
             .layout__area--center { 
                 position: fixed !important; top: 0 !important; left: 0 !important; 
                 width: 100vw !important; height: 100vh !important; z-index: 9999 !important; 
+                transform-origin: top left !important; 
+                transform: scale(1.1) !important; 
             }
         """
         base_chart_url = TV_CHART_URL.rstrip('/')
@@ -280,16 +283,19 @@ async def main():
     ]
     remain_zoom_time = intro_visual_total - 2.500
 
-    # 🎬 三段式动态运镜：左上角放大2倍 -> 定格 -> 快速下扫
-    print("🎬 正在使用 FFmpeg 渲染【左上角放大2倍 -> 定格 -> 快速下扫】分镜...")
+    # 🚨 升级 2：上方定格放大 2 倍 ➡️ 暴推下扫
+    print("🎬 正在使用 FFmpeg 渲染【上方放大2倍 -> 快速下扫】分镜...")
     zoom_fps = 30
     zoom_frames = int(remain_zoom_time * zoom_fps)
     
+    # z: 60帧（2秒）内放大到2倍
+    # x: 保持中心居中
+    # y: 前60帧保持在最顶端(0)，60帧后每帧极速向下移动20像素直到触底
     vf_filter = (
-        f"zoompan=z='min(1+(in/30), 2.0)':"
+        f"zoompan=z='min(1+(in/60), 2.0)':"
         f"d={zoom_frames}:"
-        f"x='0':"
-        f"y='if(lte(in,60), 0, min((in-60)*12, ih-ih/zoom))':"
+        f"x='iw/2-(iw/zoom/2)':"
+        f"y='if(lte(in,60), 0, min((in-60)*20, ih-ih/zoom))':"
         f"s=1920x1080"
     )
 
@@ -317,13 +323,13 @@ async def main():
         image_timeline.append(f"file '{img_name}'\nduration {dur_etf:.3f}\n")
         audio_files.append(etf_audio)
 
-    # 🚫 干脆利落的片尾：去除所有静音留白，语音结束即视频结束
     await safe_generate_tts(OUTRO_TEXT, "audio_outro.mp3")
     dur_outro = get_audio_duration("audio_outro.mp3")
     image_timeline.append(f"file 'disclaimer.png'\nduration {dur_outro:.3f}\n")
-    # ffmpeg concat 要求最后一张图补一句不带 duration 的 file
-    image_timeline.append(f"file 'disclaimer.png'\n")
     audio_files.append("audio_outro.mp3")
+    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", "2", "silence_end.mp3"])
+    image_timeline.extend([f"file 'disclaimer.png'\nduration 2.000\n", "file 'disclaimer.png'\n"])
+    audio_files.append("silence_end.mp3")
 
     with open("video_input.txt", "w") as f: f.writelines(image_timeline)
     with open("audio_input.txt", "w") as f: f.writelines([f"file '{a}'\n" for a in audio_files])
