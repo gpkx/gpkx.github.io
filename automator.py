@@ -64,7 +64,7 @@ def clean_for_tts(text):
     return text.strip()
 
 # ==========================================
-# 🔥 PIL 物理运镜渲染引擎 (彻底告别静止BUG)
+# 🔥 PIL 物理运镜渲染引擎 (左上角锚定 & 右端K线锚定)
 # ==========================================
 def create_zoom_video(img_path, output_video, duration, fps=30, zoom_type='main'):
     frames_dir = f"temp_frames_{os.path.basename(img_path).split('.')[0]}"
@@ -77,26 +77,27 @@ def create_zoom_video(img_path, output_video, duration, fps=30, zoom_type='main'
 
     for i in range(total_frames):
         if zoom_type == 'main':
-            # 【三段式】：前60帧(2秒)向上方居中平滑放大到2倍，随后极速向下扫视
+            # 【大盘运镜】：前60帧(2秒)死死咬住“左上角”平滑放大到2倍，随后向下扫视
             if i <= 60:
                 progress = i / 60.0
-                ease = 1 - (1 - progress)**3 # 平滑缓动曲线
-                zoom = 1.0 + ease * 1.0 # 1.0 放大到 2.0
+                ease = 1 - (1 - progress)**3
+                zoom = 1.0 + ease * 1.0 # 1.0 -> 2.0
                 cw, ch = int(w/zoom), int(h/zoom)
-                cx = int((w - cw) / 2) # 水平绝对居中
-                cy = 0 # 镜头死死顶住上方表头
+                cx = 0 # 👈 强制锚定最左边
+                cy = 0 # 👈 强制锚定最上边
             else:
                 zoom = 2.0
                 cw, ch = int(w/2.0), int(h/2.0)
-                cx = int((w - cw) / 2)
+                cx = 0 # 保持最左
                 pan_progress = (i - 60) / (total_frames - 60)
-                cy = int((h - ch) * pan_progress) # 极速向底部拉动
+                cy = int((h - ch) * pan_progress) # 极速向底部扫视
         else:
-            # 【呼吸感】：TV图表缓慢向中心推进 (1.0 放大到 1.1)
+            # 【TV图表运镜】：以“最右边K线”为基准，向左拉近放大
             progress = i / total_frames
-            zoom = 1.0 + 0.1 * progress
+            zoom = 1.0 + 0.15 * progress # 放大到 1.15 倍增强呼吸感
             cw, ch = int(w/zoom), int(h/zoom)
-            cx, cy = int((w - cw) / 2), int((h - ch) / 2)
+            cx = w - cw # 👈 X轴坐标贴死最右边边界，实现往左拉伸的视觉错觉
+            cy = int((h - ch) / 2) # Y轴保持垂直居中
 
         box = (cx, cy, cx + cw, cy + ch)
         frame = img.crop(box).resize((w, h), Image.Resampling.LANCZOS)
@@ -117,7 +118,7 @@ def create_static_video(img_path, output_video, duration, fps=30):
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 # ==========================================
-# 🔥 核心：AI 智能中枢 (封杀暗黑，强制居中)
+# 🔥 核心：AI 智能中枢 (防断尾装甲)
 # ==========================================
 def call_ai_director(etf_list, time_label):
     api_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
@@ -137,14 +138,14 @@ def call_ai_director(etf_list, time_label):
 
     【输出要求】：必须返回合法的 JSON，精确包含以下 5 个字段：
     - "video_intro": 视频开场白。只需1到2句（20-30字），极简概括。英文写 E T F、A T R。
-    - "etf_narratives": 🚨 必须是一个【纯字符串数组】。针对单只ETF只需两三句客观讲解数据，绝对不瞎猜！
+    - "etf_narratives": 🚨 必须是一个纯字符串数组！必须严格包含 {len(etf_list)} 句短评，分别对应上面传入的 {len(etf_list)} 只ETF，少写一个都会导致系统崩溃！只做客观数据讲解，绝不瞎猜！
     - "social_title": 爆款推文标题（20字内，带emoji）。
     - "social_body": 排版精美的推文正文。多用emoji，客观复盘。文末引流：想白嫖量化信号，评论区见。
-    - "cover_html": 这是一段完整的 HTML5+CSS 代码字符串。
-         * 尺寸：适配 1920x1080 电脑宽屏。
-         * 🚨 审美死命令：必须使用【明亮、干净、通透】的浅色系背景（如白、浅金、天蓝渐变），坚决弃用暗黑系！
-         * 🚨 排版死命令：整个页面的标题、数据卡片、文字【必须绝对完美居中对齐】（使用 display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; width: 100vw;）。
-         * 内容：包含【{time_label}量化雷达】大标题，以及并排排列的前三名ETF名称和读数卡片。字体使用 Microsoft YaHei。
+    - "cover_html": 完整的 HTML5+CSS 封面代码。
+         * 尺寸：1920x1080 电脑宽屏。
+         * 审美：必须使用【明亮、干净、通透】的浅色背景（纯白、浅金、天蓝渐变），坚决弃用暗黑系！
+         * 排版：标题、数据卡片、文字【必须绝对完美居中对齐】。
+         * 字体：Microsoft YaHei。
     """
 
     ds_host = "https://" + "api.deepseek.com"
@@ -153,7 +154,7 @@ def call_ai_director(etf_list, time_label):
     payload = {
         "model": "deepseek-chat",
         "messages": [
-            {"role": "system", "content": "你是量化专家兼设计师。必须返回严格居中、背景明亮的HTML封面设计的 JSON。"},
+            {"role": "system", "content": "你是量化专家兼设计师。必须返回严格居中、背景明亮、数组长度精准对应的 JSON。"},
             {"role": "user", "content": prompt}
         ],
         "response_format": {"type": "json_object"},
@@ -179,7 +180,7 @@ def call_ai_director(etf_list, time_label):
     sys.exit(1)
 
 async def main():
-    print(f"🚀 开始执行【物理引擎运镜 + 宽屏高亮 + 极简干脆】工作流... {NOW}")
+    print(f"🚀 开始执行【左上角大盘拉伸 + 右侧TV缩放 + 智能防断尾】工作流... {NOW}")
     
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
@@ -278,7 +279,7 @@ async def main():
     create_static_video("ss_main.png", "seg_main_static.mp4", 1.0)
     video_segments.append("seg_main_static.mp4")
 
-    active_intro = clean_for_tts(ai_script['video_intro'])
+    active_intro = clean_for_tts(ai_script.get('video_intro', ''))
     await safe_generate_tts(active_intro, "audio_intro.mp3")
     dur_intro = get_audio_duration("audio_intro.mp3")
     
@@ -291,19 +292,25 @@ async def main():
         shutil.copy("audio_intro.mp3", "seg_audio_intro.mp3")
     audio_segments.append("seg_audio_intro.mp3")
 
-    print("🎬 正在使用物理引擎渲染大盘运镜...")
+    print("🎬 正在使用物理引擎渲染大盘运镜 (左上角锚定)...")
     create_zoom_video("ss_main.png", "seg_main_zoom.mp4", remain_zoom_time, zoom_type='main')
     video_segments.append("seg_main_zoom.mp4")
 
     for i, etf in enumerate(etf_list):
-        etf_text = clean_for_tts(ai_script['etf_narratives'][i]) if i < len(ai_script['etf_narratives']) else f"来看{etf['name']}走势。"
+        # 💡 数据防断尾保障：如果 AI 偷懒缺斤少两，程序自动用最标准的数据结构生成话术
+        ai_narratives = ai_script.get('etf_narratives', [])
+        if i < len(ai_narratives):
+            etf_text = clean_for_tts(ai_narratives[i])
+        else:
+            etf_text = f"最后看{etf['name']}的客观走势，{format_quant_voice(etf['change'])}。"
+            
         audio_name = f"seg_audio_etf_{i}.mp3"
         await safe_generate_tts(etf_text, audio_name)
         await asyncio.sleep(1)
         dur_etf = get_audio_duration(audio_name)
         audio_segments.append(audio_name)
         
-        print(f"🎬 正在使用物理引擎渲染 TV 图表 {etf['name']} 的呼吸推镜...")
+        print(f"🎬 正在渲染 TV 图表 {etf['name']} 的呼吸推镜 (右端 K 线锚定)...")
         video_name = f"seg_video_etf_{i}.mp4"
         create_zoom_video(f"ss_etf_{i}.png", video_name, dur_etf, zoom_type='tv')
         video_segments.append(video_name)
@@ -330,9 +337,8 @@ async def main():
     print("✈️ 正在推送到 Telegram 接收端...")
     bot_token = os.getenv('TELEGRAM_BOT_TOKEN', '').strip()
     chat_id = os.getenv('TELEGRAM_CHAT_ID', '').strip()
-    xhs_text = f"📝 【明亮高燃运镜版】\n\n💡 {ai_script['social_title']}\n\n{ai_script['social_body']}\n\n--- 🎬 视频文案备份 ---\n{ai_script['video_intro']}"
+    xhs_text = f"📝 【智能防粘推镜版】\n\n💡 {ai_script['social_title']}\n\n{ai_script['social_body']}\n\n--- 🎬 视频文案备份 ---\n{ai_script['video_intro']}"
     
-    # 💡 终极物理防粘补丁：把 Telegram 的网址也彻底切断！
     tg_host = "https://" + "api.telegram.org/bot"
     
     try:
