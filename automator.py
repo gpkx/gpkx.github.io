@@ -109,7 +109,6 @@ def create_zoom_video(img_path, output_video, duration, fps=30, zoom_type='main'
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     shutil.rmtree(frames_dir)
 
-# 将静态图片转化为固定时长的 mp4
 def create_static_video(img_path, output_video, duration, fps=30):
     cmd = [
         "ffmpeg", "-y", "-loop", "1", "-i", img_path, "-t", str(duration),
@@ -273,7 +272,6 @@ async def main():
     video_segments = []
     audio_segments = []
 
-    # 1. 封面与监控页静止段
     create_static_video("cover_image.png", "seg_cover.mp4", 1.5)
     video_segments.append("seg_cover.mp4")
     
@@ -293,12 +291,10 @@ async def main():
         shutil.copy("audio_intro.mp3", "seg_audio_intro.mp3")
     audio_segments.append("seg_audio_intro.mp3")
 
-    # 2. 监控大盘运镜 (上方放大 -> 快扫)
     print("🎬 正在使用物理引擎渲染大盘运镜...")
     create_zoom_video("ss_main.png", "seg_main_zoom.mp4", remain_zoom_time, zoom_type='main')
     video_segments.append("seg_main_zoom.mp4")
 
-    # 3. TV图表运镜 (平滑推进)
     for i, etf in enumerate(etf_list):
         etf_text = clean_for_tts(ai_script['etf_narratives'][i]) if i < len(ai_script['etf_narratives']) else f"来看{etf['name']}走势。"
         audio_name = f"seg_audio_etf_{i}.mp3"
@@ -312,7 +308,6 @@ async def main():
         create_zoom_video(f"ss_etf_{i}.png", video_name, dur_etf, zoom_type='tv')
         video_segments.append(video_name)
 
-    # 4. 完美同步片尾 (无留白)
     await safe_generate_tts(OUTRO_TEXT, "seg_audio_outro.mp3")
     dur_outro = get_audio_duration("seg_audio_outro.mp3")
     audio_segments.append("seg_audio_outro.mp3")
@@ -337,10 +332,13 @@ async def main():
     chat_id = os.getenv('TELEGRAM_CHAT_ID', '').strip()
     xhs_text = f"📝 【明亮高燃运镜版】\n\n💡 {ai_script['social_title']}\n\n{ai_script['social_body']}\n\n--- 🎬 视频文案备份 ---\n{ai_script['video_intro']}"
     
+    # 💡 终极物理防粘补丁：把 Telegram 的网址也彻底切断！
+    tg_host = "https://" + "api.telegram.org/bot"
+    
     try:
-        requests.post(f"[https://api.telegram.org/bot](https://api.telegram.org/bot){bot_token}/sendMessage", data={'chat_id': chat_id, 'text': xhs_text}).raise_for_status()
+        requests.post(f"{tg_host}{bot_token}/sendMessage", data={'chat_id': chat_id, 'text': xhs_text}).raise_for_status()
         with open(final_video, 'rb') as vf:
-            requests.post(f"[https://api.telegram.org/bot](https://api.telegram.org/bot){bot_token}/sendVideo", data={'chat_id': chat_id, 'caption': f"🎬 {ai_script['social_title']}"}, files={'video': vf}, timeout=120).raise_for_status()
+            requests.post(f"{tg_host}{bot_token}/sendVideo", data={'chat_id': chat_id, 'caption': f"🎬 {ai_script['social_title']}"}, files={'video': vf}, timeout=120).raise_for_status()
 
         img_list = ["cover_image.png", "ss_main.png", "disclaimer.png"] + [f"ss_etf_{i}.png" for i in range(len(etf_list))]
         for i in range(0, len(img_list), 10):
@@ -349,7 +347,7 @@ async def main():
                 if os.path.exists(img):
                     files[f"f{idx}"] = open(img, "rb")
                     media_group.append({"type": "photo", "media": f"attach://f{idx}"})
-            requests.post(f"[https://api.telegram.org/bot](https://api.telegram.org/bot){bot_token}/sendMediaGroup", data={'chat_id': chat_id, 'media': json.dumps(media_group)}, files=files, timeout=60).raise_for_status()
+            requests.post(f"{tg_host}{bot_token}/sendMediaGroup", data={'chat_id': chat_id, 'media': json.dumps(media_group)}, files=files, timeout=60).raise_for_status()
             for f in files.values(): f.close()
     except Exception as e:
         print(f"🛑 推送至 Telegram 失败: {e}")
