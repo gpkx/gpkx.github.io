@@ -29,7 +29,7 @@ COVER_SUBTITLE = f"({DATE_STR}-{TIME_LABEL})" if IS_MIDDAY else f"({DATE_STR})"
 
 FILE_SUFFIX = NOW.strftime("%Y%m%d_%H%M")
 OUTRO_TEXT = "本内容不构成投资建议。"
-PRIVATE_HOOK = "需要全天候量化异动监控名单，请在评论区留言，带你进内部交流群。" # 👈 终极私域钩子
+PRIVATE_HOOK = "需要全天候量化异动监控名单，请在评论区留言，带你进内部交流群。" 
 
 def get_tv_symbol(code):
     if code.startswith(('5', '6')): return f"SSE:{code}"
@@ -71,7 +71,7 @@ def clean_for_tts(text):
     return text.strip()
 
 # ==========================================
-# 🔥 自动字幕生成器 (SRT格式)
+# 🔥 自动字幕生成器 (不换行版)
 # ==========================================
 def create_srt(text, duration, filename):
     def format_time(seconds):
@@ -83,10 +83,9 @@ def create_srt(text, duration, filename):
     start_time = "00:00:00,000"
     end_time = format_time(duration)
     
-    # 智能断句，每行最多18个中文字符
     clean_text = text.replace(' E T F ', 'ETF').replace(' A T R ', 'ATR')
     lines = []
-    max_len = 18
+    max_len = 40 # 👈 放宽到 40 个字，保证单行显示
     for i in range(0, len(clean_text), max_len):
         lines.append(clean_text[i:i+max_len])
     
@@ -95,7 +94,7 @@ def create_srt(text, duration, filename):
         f.write(srt_content)
 
 # ==========================================
-# 🔥 PIL 物理运镜渲染引擎 (带原生字幕烧录)
+# 🔥 PIL 物理运镜渲染引擎 (极简字幕烧录)
 # ==========================================
 def create_zoom_video(img_path, output_video, duration, fps=30, zoom_type='main', srt_file=None):
     frames_dir = f"temp_frames_{os.path.basename(img_path).split('.')[0]}"
@@ -136,8 +135,8 @@ def create_zoom_video(img_path, output_video, duration, fps=30, zoom_type='main'
     vf_filters = []
     if srt_file and os.path.exists(srt_file):
         srt_path = srt_file.replace('\\', '\\\\').replace(':', '\\:')
-        # 🚨 字幕修改：添加 FontName=Microsoft YaHei，字号改为 14，细边框
-        vf_filters.append(f"subtitles={srt_path}:force_style='FontName=Microsoft YaHei,FontSize=14,PrimaryColour=&H00FFFFFF,Outline=2,OutlineColour=&H00000000,MarginV=30'")
+        # 🚨 字幕指令：12号字体，纯黑，移除阴影和描边特效
+        vf_filters.append(f"subtitles={srt_path}:force_style='FontName=Microsoft YaHei,FontSize=12,PrimaryColour=&H00000000,Outline=0,Shadow=0,MarginV=40'")
 
     cmd = [
         "ffmpeg", "-y", "-framerate", str(fps), "-i", f"{frames_dir}/frame_%04d.jpg"
@@ -153,8 +152,8 @@ def create_static_video(img_path, output_video, duration, fps=30, srt_file=None)
     vf_filters = []
     if srt_file and os.path.exists(srt_file):
         srt_path = srt_file.replace('\\', '\\\\').replace(':', '\\:')
-        # 🚨 字幕修改：添加 FontName=Microsoft YaHei，字号改为 14，细边框
-        vf_filters.append(f"subtitles={srt_path}:force_style='FontName=Microsoft YaHei,FontSize=14,PrimaryColour=&H00FFFFFF,Outline=2,OutlineColour=&H00000000,MarginV=30'")
+        # 🚨 字幕指令：12号字体，纯黑，移除阴影和描边特效
+        vf_filters.append(f"subtitles={srt_path}:force_style='FontName=Microsoft YaHei,FontSize=12,PrimaryColour=&H00000000,Outline=0,Shadow=0,MarginV=40'")
 
     cmd = [
         "ffmpeg", "-y", "-loop", "1", "-i", img_path, "-t", str(duration)
@@ -166,7 +165,7 @@ def create_static_video(img_path, output_video, duration, fps=30, srt_file=None)
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 # ==========================================
-# 🔥 核心：AI 智能中枢 
+# 🔥 核心：AI 智能中枢 (扁平化死命令)
 # ==========================================
 def call_ai_director(etf_list, time_label):
     api_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
@@ -190,9 +189,9 @@ def call_ai_director(etf_list, time_label):
     - "social_title": 爆款推文标题（20字内，带emoji）。
     - "social_body": 排版精美的推文正文。多用emoji，客观复盘。
     - "cover_html": 这是一段完整的 HTML5+CSS 代码字符串。
-         * 尺寸：1920x1080。
+         * 尺寸：720x1280 竖屏。
          * 内容：标题固定为【{COVER_TITLE}】，副标题固定为【{COVER_SUBTITLE}】。下面展示 4 只 ETF 的名称和数据！
-         * 审美：使用【明亮、干净、通透】的高级感浅色背景，坚决弃用暗黑系！绝对完美居中对齐。字体使用 Microsoft YaHei。
+         * 审美：使用【明亮、干净、通透】的浅色背景。🚨 死命令：全部去除阴影、光晕等特效，采用极其纯粹的扁平化(Flat)设计！绝对完美居中对齐。字体使用 Microsoft YaHei。
     """
 
     ds_host = "https://" + "api.deepseek.com"
@@ -201,7 +200,7 @@ def call_ai_director(etf_list, time_label):
     payload = {
         "model": "deepseek-chat",
         "messages": [
-            {"role": "system", "content": "你是量化专家兼设计师。必须返回严格居中、背景明亮的HTML封面设计的 JSON。"},
+            {"role": "system", "content": "你是量化专家兼设计师。必须返回严格居中、背景明亮扁平化设计的 JSON。"},
             {"role": "user", "content": prompt}
         ],
         "response_format": {"type": "json_object"},
@@ -227,13 +226,14 @@ def call_ai_director(etf_list, time_label):
     sys.exit(1)
 
 async def main():
-    print(f"🚀 开始执行【4名打榜 + 直飞TV图表 + 黑字水印 + 雅黑字幕】工作流... {NOW}")
+    print(f"🚀 开始执行【原生手机竖屏 + 扁平无阴影 + 极简字幕】工作流... {NOW}")
     
     async with async_playwright() as p:
+        # 🚨 视角重置：全面切回手机原生竖屏 720x1280
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(
-            viewport={'width': 1920, 'height': 1080}, is_mobile=False,
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
+            viewport={'width': 720, 'height': 1280}, is_mobile=True,
+            user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 Safari/604.1"
         )
         
         tv_session = os.getenv('TV_SESSION_ID', '').strip()
@@ -272,28 +272,29 @@ async def main():
         except Exception as e:
             sys.exit(1)
 
-        print("🎭 正在调度 AI 专家生成明亮封面与解说词...")
+        print("🎭 正在调度 AI 专家生成竖屏扁平化封面与解说词...")
         ai_script = call_ai_director(etf_list, TIME_LABEL)
         
-        print("🎨 正在渲染 AI 生成的 1080P 明亮宽屏封面...")
+        print("🎨 正在渲染 AI 生成的 720P 竖屏极简封面...")
         await page.set_content(ai_script.get('cover_html', '<html><body><h1>生成异常</h1></body></html>'))
         await page.wait_for_timeout(2000) 
         await page.screenshot(path="cover_image.png")
 
+        # 针对竖屏微调过字号的免责声明
         disclaimer_html = """
         <!DOCTYPE html><html><head><meta charset="UTF-8"><style>
             html { background: #f8fafc; margin: 0; padding: 0; overflow: hidden; width: 100vw; height: 100vh; }
             body { 
-                background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+                background: #f8fafc;
                 display: flex; flex-direction: column; justify-content: center; align-items: center; 
-                font-family: 'Microsoft YaHei', sans-serif; color: #1e293b; text-align: center; height: 100vh; margin: 0;
+                font-family: 'Microsoft YaHei', sans-serif; color: #1e293b; text-align: center; height: 100vh; margin: 0; padding: 0 40px;
             }
-            h1 { color: #0f172a; font-size: 80px; margin-bottom: 50px; font-weight: 900; letter-spacing: 10px;}
-            p { font-size: 45px; line-height: 2; font-weight: bold; color: #334155; }
-            .footer { margin-top: 80px; font-size: 35px; color: #94a3b8; border-top: 2px solid #cbd5e1; padding-top: 40px; width: 60%;}
+            h1 { color: #0f172a; font-size: 60px; margin-bottom: 40px; font-weight: bold; letter-spacing: 5px;}
+            p { font-size: 32px; line-height: 2; font-weight: normal; color: #334155; }
+            .footer { margin-top: 60px; font-size: 24px; color: #94a3b8; border-top: 1px solid #cbd5e1; padding-top: 30px; width: 80%;}
         </style></head><body>
             <h1>免责声明</h1>
-            <p>本视频内所有数据、图表及指标读数<br>均基于特定量化模型客观记录生成<br><br>不代表标的真实涨跌幅<br>亦不构成任何买卖及投资建议</p>
+            <p>本视频内所有数据、图表及指标读数<br>均基于量化模型客观记录生成<br><br>不代表标的真实涨跌幅<br>亦不构成任何投资建议</p>
             <div class="footer">市场有风险 · 投资需谨慎</div>
         </body></html>
         """
@@ -301,8 +302,9 @@ async def main():
         await page.wait_for_timeout(1000)
         await page.screenshot(path="disclaimer.png")
 
-        print("🌐 正在抓取去边框 TV 图表并注入霸气居中水印...")
-        clean_css = ".layout__area--top, .layout__area--left, .layout__area--right, .layout__area--bottom, [data-name='widgetbar'], #widgetbar, .widgetbar-wrap { display: none !important; } .layout__area--center { position: fixed !important; top: 0 !important; left: 0 !important; width: 100vw !important; height: 100vh !important; z-index: 9999 !important; transform-origin: top left !important; transform: scale(1.15) !important; }"
+        # 🚨 移除粗暴的 scale 缩放，采用手机原生排版直出截图
+        print("🌐 正在抓取 TV 原生竖屏图表并注入无阴影黑色水印...")
+        clean_css = ".layout__area--top, .layout__area--left, .layout__area--right, .layout__area--bottom, [data-name='widgetbar'], #widgetbar, .widgetbar-wrap { display: none !important; } .layout__area--center { position: fixed !important; top: 0 !important; left: 0 !important; width: 100vw !important; height: 100vh !important; z-index: 9999 !important; }"
         target_interval = "180" if IS_MIDDAY else "1D"
         
         for i, etf in enumerate(etf_list):
@@ -310,21 +312,21 @@ async def main():
             await page.goto(f"{TV_CHART_URL.rstrip('/')}/?symbol={symbol}&interval={target_interval}", wait_until="domcontentloaded", timeout=60000)
             await page.add_style_tag(content=clean_css)
             
-            # 🚨 水印修改：黑色、正常雅黑字体、带淡淡白边光晕防重叠
+            # 🚨 彻底移除 textShadow 的水印样式
             overlay_js = f"""
             let overlay = document.createElement('div');
             overlay.innerHTML = '{etf['name']}';
             overlay.style.position = 'fixed';
-            overlay.style.top = '12%';
+            overlay.style.top = '10%';
             overlay.style.left = '50%';
             overlay.style.transform = 'translateX(-50%)';
             overlay.style.fontFamily = '"Microsoft YaHei", sans-serif';
-            overlay.style.fontSize = '130px';
-            overlay.style.fontWeight = 'normal';
+            overlay.style.fontSize = '70px'; // 适配竖屏宽度
+            overlay.style.fontWeight = 'bold';
             overlay.style.color = '#000000'; // 纯黑
-            overlay.style.textShadow = '0 0 15px rgba(255, 255, 255, 0.9)'; // 白色光晕描边，防止被K线挡住看不清
+            overlay.style.textShadow = 'none'; // 彻底抛弃阴影特效
             overlay.style.zIndex = '999999';
-            overlay.style.letterSpacing = '10px';
+            overlay.style.letterSpacing = '5px';
             document.body.appendChild(overlay);
             """
             await page.evaluate(overlay_js)
@@ -365,7 +367,7 @@ async def main():
         srt_name = f"sub_etf_{i}.srt"
         create_srt(etf_text, dur_etf, srt_name)
         
-        print(f"🎬 正在渲染 {etf['name']} 的呼吸推镜及字幕烧录...")
+        print(f"🎬 正在渲染 {etf['name']} 的呼吸推镜及无特效单行字幕烧录...")
         video_name = f"seg_video_etf_{i}.mp4"
         create_zoom_video(f"ss_etf_{i}.png", video_name, dur_etf, zoom_type='tv', srt_file=srt_name)
         video_segments.append(video_name)
@@ -375,10 +377,11 @@ async def main():
     create_srt(OUTRO_TEXT, dur_outro, "sub_outro.srt")
     audio_segments.append("seg_audio_outro.mp3")
     
+    # 视频总长死死锚定在最终语音时长的终点，无毫秒残留
     create_static_video("disclaimer.png", "seg_video_outro.mp4", dur_outro, srt_file="sub_outro.srt")
     video_segments.append("seg_video_outro.mp4")
 
-    print("🎬 正在无缝拼装带字幕的 1080P 音视频序列...")
+    print("🎬 正在无缝拼装带字幕的竖屏音视频序列...")
     with open("list_v.txt", "w") as f: f.writelines([f"file '{v}'\n" for v in video_segments])
     with open("list_a.txt", "w") as f: f.writelines([f"file '{a}'\n" for a in audio_segments])
     
@@ -389,6 +392,7 @@ async def main():
     if os.path.exists("bgm.mp3"):
         subprocess.run(["ffmpeg", "-y", "-i", "temp_v.mp4", "-i", "temp_a.mp3", "-stream_loop", "-1", "-i", "bgm.mp3", "-filter_complex", "[1:a]volume=1.0[a1];[2:a]volume=0.15[a2];[a1][a2]amix=inputs=2:duration=first:dropout_transition=2[a]", "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", final_video], check=True)
     else:
+        # -shortest 保证音视频严格在音频终点结束
         subprocess.run(["ffmpeg", "-y", "-i", "temp_v.mp4", "-i", "temp_a.mp3", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", final_video], check=True)
         
     for tmp in ["temp_v.mp4", "temp_a.mp3"] + video_segments:
@@ -398,7 +402,7 @@ async def main():
     bot_token = os.getenv('TELEGRAM_BOT_TOKEN', '').strip()
     chat_id = os.getenv('TELEGRAM_CHAT_ID', '').strip()
     
-    xhs_text = f"📝 【直飞图表 + 巨屏水印 + 全自动字幕】\n\n💡 {ai_script.get('social_title', 'ETF复盘')}\n\n{ai_script.get('social_body', '')}\n\n--- 🎬 视频文案备份 ---\n{ai_script.get('video_intro', '')}"
+    xhs_text = f"📝 【竖屏原生直出 + 纯黑单行字幕】\n\n💡 {ai_script.get('social_title', 'ETF复盘')}\n\n{ai_script.get('social_body', '')}\n\n--- 🎬 视频文案备份 ---\n{ai_script.get('video_intro', '')}"
     msg_title = ai_script.get('social_title', '量化异动复盘')
 
     tg_host = "https://" + "api.telegram.org/bot"
