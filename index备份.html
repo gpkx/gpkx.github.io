@@ -194,20 +194,10 @@
                                     <tr class="hover:bg-blue-50/40 transition-colors cursor-pointer" @click="toggleRow(item)">
                                         <td class="p-2 md:p-3 font-bold text-gray-800 text-left sticky left-0 bg-white shadow-[1px_0_0_0_#f3f4f6] z-10 etf-name-column">
                                             <div class="flex flex-col overflow-hidden">
+                                                <!-- 删除计数并让名称样式占满行 -->
                                                 <div :style="getEtfNameStyle(item)" class="flex items-center justify-between whitespace-nowrap overflow-hidden">
-                                                    <span class="text-slate-900 font-bold hover:text-blue-600 transition-colors flex items-center shrink-0">
+                                                    <span class="text-slate-900 font-bold hover:text-blue-600 transition-colors flex items-center shrink-0 w-full truncate">
                                                         {{ item.etf_name }}
-                                                        <span v-if="getMonthlyCountData(item.etf_code, item.date).total > 0" class="ml-0.5 tracking-tight font-semibold">
-                                                            <template v-if="getMonthlyCountData(item.etf_code, item.date).up > 0 && getMonthlyCountData(item.etf_code, item.date).down > 0">
-                                                                <span class="text-black">(</span><span class="text-red-600">{{ getMonthlyCountData(item.etf_code, item.date).up }}</span><span class="text-black">:</span><span class="text-green-600">{{ getMonthlyCountData(item.etf_code, item.date).down }}</span><span class="text-black">)</span>
-                                                            </template>
-                                                            <template v-else-if="getMonthlyCountData(item.etf_code, item.date).up > 0">
-                                                                <span class="text-black">(</span><span class="text-red-600">{{ getMonthlyCountData(item.etf_code, item.date).up }}</span><span class="text-black">)</span>
-                                                            </template>
-                                                            <template v-else-if="getMonthlyCountData(item.etf_code, item.date).down > 0">
-                                                                <span class="text-black">(</span><span class="text-green-600">{{ getMonthlyCountData(item.etf_code, item.date).down }}</span><span class="text-black">)</span>
-                                                            </template>
-                                                        </span>
                                                     </span>
                                                     <i class="fa-solid text-[0.8em] ml-1 text-gray-400 transition-transform duration-200 shrink-0" 
                                                        :class="expandedRowKey === item.etf_code + '_' + item.date ? 'fa-chevron-down rotate-180 text-blue-500' : 'fa-chevron-right'"></i>
@@ -564,40 +554,32 @@
                     return parts;
                 };
 
+                // 核心修改点：重新计算自适应样式
                 const getEtfNameStyle = (item) => {
                     const name = item.etf_name || '';
-                    const data = getMonthlyCountData(item.etf_code, item.date);
-                    let countStr = '';
-                    if (data.total > 0) {
-                        if (data.up > 0 && data.down > 0) {
-                            countStr = `(${data.up}:${data.down})`;
-                        } else if (data.up > 0) {
-                            countStr = `(${data.up})`;
-                        } else if (data.down > 0) {
-                            countStr = `(${data.down})`;
-                        }
-                    }
                     
-                    const fullText = name + countStr;
-                    let visualLength = 1.0; 
-                    for (let i = 0; i < fullText.length; i++) {
-                        const code = fullText.charCodeAt(i);
+                    let visualLength = 0; 
+                    // 粗略计算中英文混合字符的视觉长度
+                    for (let i = 0; i < name.length; i++) {
+                        const code = name.charCodeAt(i);
                         visualLength += (code >= 0 && code <= 128) ? 0.55 : 1.0;
                     }
                     
-                    const targetWidth = 104; 
-                    let fontSize = targetWidth / visualLength;
-                    fontSize = Math.max(8.5, Math.min(15, fontSize));
+                    // 增大目标宽度设定为 115px（考虑到130px的外层容器以及右侧图标预留空间）
+                    const targetWidth = 115; 
+                    let fontSize = targetWidth / Math.max(visualLength, 1);
+                    // 放宽字体的最大/最小值，使其通过放大字号占满单行
+                    fontSize = Math.max(10, Math.min(16, fontSize));
                     
                     return {
                         fontSize: `${fontSize}px`,
                         width: '100%',
-                        maxWidth: `${targetWidth}px`,
                         lineHeight: '1.2',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
-                        whiteSpace: 'nowrap'
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden'
                     };
                 };
 
