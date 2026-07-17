@@ -3,19 +3,31 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ETF涨跌幅异动监控系统</title>
+    <title>ETF涨跌幅实时监控</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <style>
         [v-cloak] { display: none; }
-        .etf-name-column { width: 130px; min-width: 130px; max-width: 130px; }
+        
+        .etf-name-column {
+            width: 130px;
+            min-width: 130px;
+            max-width: 130px;
+        }
+
         .watermark-overlay {
-            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-            pointer-events: none; z-index: 9999;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            pointer-events: none;
+            z-index: 9999;
             background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="350" height="250" opacity="0.03" transform="rotate(-15)"><text x="30" y="120" font-family="sans-serif" font-weight="bold" font-size="18" fill="%23000">手机/微信:18507078300</text></svg>');
             background-repeat: repeat;
         }
+        
         .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 4px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
@@ -23,23 +35,27 @@
     </style>
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans relative">
+    
     <div class="watermark-overlay"></div>
+
     <div id="app" v-cloak>
         <header class="bg-slate-800 text-white shadow-md sticky top-0 z-50 h-[56px]">
             <div class="container mx-auto px-4 h-full flex justify-between items-center">
                 <h1 class="text-lg font-bold flex items-center gap-2">
-                    <i class="fa-solid fa-chart-line text-emerald-400"></i> ETF涨跌幅异动监控系统
+                    <i class="fa-solid fa-chart-line text-emerald-400"></i> ETF涨跌幅实时监控
                 </h1>
                 <span class="text-xs bg-emerald-600 px-2 py-1 rounded font-mono animate-pulse">● LIVE同步中</span>
             </div>
         </header>
 
         <main class="container mx-auto px-2 md:px-4 pt-2 pb-4 md:pt-3 md:pb-6 max-w-5xl">
+            
             <div v-if="loading" class="text-center py-12 text-gray-500">
                 <i class="fa-solid fa-spinner animate-spin mr-2"></i> 正在读取最新数据...
             </div>
 
             <div v-else class="space-y-3">
+                
                 <div class="flex flex-row gap-2 relative z-40">
                     <div class="flex-1 bg-white rounded-xl shadow-sm border border-gray-100 relative min-w-0">
                         <button @click.stop="toggleDropdown" class="w-full flex items-center justify-between border-transparent rounded-xl px-3 py-2.5 text-sm font-semibold hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500">
@@ -115,7 +131,7 @@
 
                                     <th class="py-2.5 px-1 md:px-2 cursor-pointer hover:bg-slate-200 transition-colors" @click="handleSort('week_status')">
                                         <div class="flex items-center justify-center gap-1">
-                                            周线
+                                            上周K
                                             <div class="flex flex-col text-[9px] leading-[8px] text-gray-300">
                                                 <i class="fa-solid fa-caret-up" :class="{'text-blue-600': sortColumn === 'week_status' && sortOrder === 'asc'}"></i>
                                                 <i class="fa-solid fa-caret-down" :class="{'text-blue-600': sortColumn === 'week_status' && sortOrder === 'desc'}"></i>
@@ -237,27 +253,12 @@
                     const firstDay = new Date(y, m, 1);
                     let firstDayOfWeek = firstDay.getDay(); 
                     if (firstDayOfWeek === 0) firstDayOfWeek = 7;
+                    
                     const offset = firstDayOfWeek - 1; 
                     const weekNum = Math.ceil((d + offset) / 7);
                     
                     const chineseNumbers = ['一', '二', '三', '四', '五', '六'];
                     return `第${chineseNumbers[weekNum - 1] || weekNum}周`;
-                };
-
-                // 🌟 核心逻辑：穿越时间提取真正的“周线”
-                // 无论当前看了哪一周，它都会强行去寻找“该周五”之前最新记录下来的有效周K线，无视本周中途产生的任何周线突变
-                const getPreviousWeekK = (etf_code, fridayDateStr) => {
-                    const records = allData.value.filter(item => 
-                        item.etf_code === etf_code && 
-                        item.date < fridayDateStr && 
-                        item.week_status && 
-                        item.week_status !== '-' && 
-                        item.week_status !== '--'
-                    );
-                    if (records.length > 0) {
-                        return records[0].week_status;
-                    }
-                    return '-';
                 };
 
                 const currentWeekHeaders = computed(() => {
@@ -285,6 +286,7 @@
                         if (!periods[monthKey]) {
                             periods[monthKey] = { monthKey, monthLabel, weeksMap: {} };
                         }
+
                         if (!periods[monthKey].weeksMap[monday]) {
                             periods[monthKey].weeksMap[monday] = {
                                 monday: monday,
@@ -313,13 +315,19 @@
                 });
 
                 const toggleDropdown = (e) => {
-                    e.stopPropagation(); showDropdown.value = !showDropdown.value;
+                    e.stopPropagation();
+                    showDropdown.value = !showDropdown.value;
                 };
 
-                const closeDropdown = () => { showDropdown.value = false; };
+                const closeDropdown = () => {
+                    showDropdown.value = false;
+                };
                 
                 const openSearch = () => {
-                    if (!showSearch.value) { showSearch.value = true; setTimeout(() => searchInput.value?.focus(), 100); }
+                    if (!showSearch.value) {
+                        showSearch.value = true;
+                        setTimeout(() => searchInput.value?.focus(), 100);
+                    }
                 };
 
                 const toggleSearch = () => {
@@ -328,14 +336,22 @@
                     else setTimeout(() => searchInput.value?.focus(), 100);
                 };
 
-                const selectWeek = (mondayStr) => { selectedMonday.value = mondayStr; closeDropdown(); };
+                const selectWeek = (mondayStr) => {
+                    selectedMonday.value = mondayStr;
+                    closeDropdown();
+                };
 
                 const handleSort = (column) => {
                     if (sortColumn.value === column) {
-                        if (sortOrder.value === 'desc') sortOrder.value = 'asc';
-                        else { sortColumn.value = null; sortOrder.value = 'desc'; }
+                        if (sortOrder.value === 'desc') {
+                            sortOrder.value = 'asc';
+                        } else {
+                            sortColumn.value = null; 
+                            sortOrder.value = 'desc';
+                        }
                     } else {
-                        sortColumn.value = column; sortOrder.value = 'desc';
+                        sortColumn.value = column;
+                        sortOrder.value = 'desc';
                     }
                 };
 
@@ -352,7 +368,8 @@
                             }
                         }
                     } catch (error) {
-                        console.error('API 读取失败'); allData.value = [];
+                        console.error('API 读取失败');
+                        allData.value = [];
                     } finally {
                         loading.value = false;
                     }
@@ -366,7 +383,7 @@
                 const filteredWeekData = computed(() => {
                     if (!selectedMonday.value) return [];
                     const weekDays = getWeekDays(selectedMonday.value); 
-                    const fridayDateStr = weekDays[4];
+                    
                     const etfMap = {};
                     
                     allData.value.forEach(item => {
@@ -376,18 +393,21 @@
                                 etfMap[item.etf_code] = {
                                     etf_code: item.etf_code,
                                     etf_name: item.etf_name,
-                                    days: [null, null, null, null, null]
+                                    days: [null, null, null, null, null],
+                                    week_status: null
                                 };
                             }
                             etfMap[item.etf_code].days[idx] = item;
+                            
+                            // 🌟 核心修复：因为 allData 是最新的日期排在最前，
+                            // 所以遇到第一个有数据的 week_status，就立马锁死！确保不被这周里更旧的星期几的数据给覆盖回去。
+                            if (!etfMap[item.etf_code].week_status && item.week_status && item.week_status !== '-' && item.week_status !== '--') {
+                                etfMap[item.etf_code].week_status = item.week_status;
+                            }
                         }
                     });
                     
-                    // 🌟 给每一个有效项，注入纯净版、穿越计算出来的 “周线” 
-                    let validItems = Object.values(etfMap).map(item => {
-                        item.week_status = getPreviousWeekK(item.etf_code, fridayDateStr);
-                        return item;
-                    }).filter(item => {
+                    let validItems = Object.values(etfMap).filter(item => {
                         const hasDay = item.days.some(d => d && d.day_status && d.day_status !== '-' && d.day_status !== '--');
                         const hasWeek = item.week_status && item.week_status !== '-' && item.week_status !== '--';
                         return hasDay || hasWeek;
@@ -396,7 +416,8 @@
                     if (searchQuery.value) {
                         const q = searchQuery.value.toLowerCase().trim();
                         validItems = validItems.filter(item => 
-                            item.etf_name.toLowerCase().includes(q) || item.etf_code.toLowerCase().includes(q)
+                            item.etf_name.toLowerCase().includes(q) || 
+                            item.etf_code.toLowerCase().includes(q)
                         );
                     }
 
@@ -409,6 +430,7 @@
                                 const idx = parseInt(sortColumn.value.substring(1), 10);
                                 const valA = a.days[idx] ? getStatusVal(a.days[idx].day_status) : -9999;
                                 const valB = b.days[idx] ? getStatusVal(b.days[idx].day_status) : -9999;
+                                
                                 if (valA === -9999 && valB !== -9999) return 1;
                                 if (valB === -9999 && valA !== -9999) return -1;
                                 return sortOrder.value === 'desc' ? valB - valA : valA - valB;
@@ -424,8 +446,10 @@
                             let latestValidDayIndex = 4;
                             while (latestValidDayIndex >= 0) {
                                 let hasAnyData = validItems.some(item => 
-                                    item.days[latestValidDayIndex] && item.days[latestValidDayIndex].day_status && 
-                                    item.days[latestValidDayIndex].day_status !== '-' && item.days[latestValidDayIndex].day_status !== '--'
+                                    item.days[latestValidDayIndex] && 
+                                    item.days[latestValidDayIndex].day_status && 
+                                    item.days[latestValidDayIndex].day_status !== '-' && 
+                                    item.days[latestValidDayIndex].day_status !== '--'
                                 );
                                 if (hasAnyData) break;
                                 latestValidDayIndex--;
@@ -492,7 +516,9 @@
                     const currentMonth = selectedMonday.value.substring(0, 7);
                     
                     const pastData = allData.value.filter(item => 
-                        item.etf_code === etf_code && item.date.startsWith(currentMonth)
+                        item.etf_code === etf_code && 
+                        item.date.startsWith(currentMonth) && 
+                        (item.day_status || item.week_status)
                     );
                     
                     const weekMap = {};
@@ -506,21 +532,19 @@
                                 monday: monday,
                                 weekLabel: getWeekNumberInMonth(monday),
                                 days: [null, null, null, null, null],
-                                week_status: getPreviousWeekK(etf_code, wDays[4]) // 历史周同样做溯源提取
+                                week_status: null
                             };
                         }
                         const idx = wDays.indexOf(item.date);
                         weekMap[monday].days[idx] = item;
+                        
+                        // 🌟 这里也同样加上核心修复锁，防止过去周次的数据被颠倒覆盖
+                        if (!weekMap[monday].week_status && item.week_status && item.week_status !== '-' && item.week_status !== '--') {
+                            weekMap[monday].week_status = item.week_status;
+                        }
                     });
                     
-                    // 过滤掉那周没有任何日线/周线记录的空壳
-                    let validWeeks = Object.values(weekMap).filter(w => {
-                        const hasDay = w.days.some(d => d && d.day_status && d.day_status !== '-' && d.day_status !== '--');
-                        const hasWeek = w.week_status && w.week_status !== '-' && w.week_status !== '--';
-                        return hasDay || hasWeek;
-                    });
-
-                    return validWeeks.sort((a, b) => b.monday.localeCompare(a.monday));
+                    return Object.values(weekMap).sort((a, b) => b.monday.localeCompare(a.monday));
                 };
 
                 const getEtfNameStyle = (item) => {
@@ -535,21 +559,33 @@
                     fontSize = Math.max(10, Math.min(16, fontSize));
                     
                     return {
-                        fontSize: `${fontSize}px`, width: '100%', lineHeight: '1.2',
-                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                        whiteSpace: 'nowrap', overflow: 'hidden'
+                        fontSize: `${fontSize}px`,
+                        width: '100%',
+                        lineHeight: '1.2',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden'
                     };
                 };
 
-                onMounted(() => { fetchData(); window.addEventListener('click', closeDropdown); });
-                onUnmounted(() => { window.removeEventListener('click', closeDropdown); });
+                onMounted(() => {
+                    fetchData();
+                    window.addEventListener('click', closeDropdown);
+                });
+
+                onUnmounted(() => {
+                    window.removeEventListener('click', closeDropdown);
+                });
 
                 return {
                     loading, selectedMonday, filteredWeekData, getColorClass,
                     expandedRowKey, toggleRow, getPastWeeks,
                     showDropdown, toggleDropdown, closeDropdown,
                     availablePeriods, currentPeriodLabel, selectWeek, currentWeekHeaders,
-                    getEtfNameStyle, searchQuery, showSearch, searchInput, toggleSearch, openSearch,
+                    getEtfNameStyle,
+                    searchQuery, showSearch, searchInput, toggleSearch, openSearch,
                     sortColumn, sortOrder, handleSort
                 };
             }
