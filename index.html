@@ -58,42 +58,34 @@
                 
                 <div class="flex flex-row gap-2 relative z-40">
                     <div class="flex-1 bg-white rounded-xl shadow-sm border border-gray-100 relative min-w-0">
+                        <!-- 下拉按钮 -->
                         <button @click.stop="toggleDropdown" class="w-full flex items-center justify-between border-transparent rounded-xl px-3 py-2.5 text-sm font-semibold hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500">
                             <span class="flex items-center gap-1.5 truncate">
-                                <span class="truncate">📅 交易日(当前周)：{{ selectedDate || '数据加载中...' }}</span>
+                                <span class="truncate">📅 历史周期：{{ currentPeriodLabel || '数据加载中...' }}</span>
                             </span>
                             <i class="fa-solid fa-chevron-down text-gray-400 transition-transform duration-200 ml-1 shrink-0" :class="{'rotate-180': showDropdown}"></i>
                         </button>
 
+                        <!-- 新版下拉选择器：按月份、周分组 -->
                         <div v-if="showDropdown" @click.stop class="absolute left-0 mt-2 bg-white border border-gray-200 rounded-xl shadow-xl z-50 p-4 w-[90vw] max-w-sm sm:w-80">
-                            <div class="mb-2">
-                                <div class="flex items-center justify-between mb-3">
-                                    <button @click="prevMonth" :disabled="isPrevMonthDisabled" class="p-1 px-2 text-gray-600 hover:bg-gray-100 rounded disabled:opacity-20 disabled:hover:bg-transparent">
-                                        <i class="fa-solid fa-chevron-left text-xs"></i>
-                                    </button>
-                                    <span class="text-sm font-bold text-slate-700 font-mono">{{ currentYear }}年{{ currentMonth + 1 }}月</span>
-                                    <button @click="nextMonth" :disabled="isNextMonthDisabled" class="p-1 px-2 text-gray-600 hover:bg-gray-100 rounded disabled:opacity-20 disabled:hover:bg-transparent">
-                                        <i class="fa-solid fa-chevron-right text-xs"></i>
-                                    </button>
-                                </div>
-                                <div class="grid grid-cols-7 gap-1 text-center text-xs font-bold text-gray-400 mb-1">
-                                    <div>日</div><div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div>六</div>
-                                </div>
-                                <div class="grid grid-cols-7 gap-1 text-center">
-                                    <div v-for="blank in calendarBlanks" :key="'b-'+blank"></div>
-                                    <div v-for="day in calendarDays" :key="'d-'+day.dateStr">
-                                        <div v-if="day.isBeforeStart" class="h-8"></div>
-                                        <button v-else
-                                            @click="day.hasData && selectDate(day.dateStr)"
-                                            :disabled="!day.hasData"
-                                            class="w-full h-8 text-xs font-semibold rounded-lg flex items-center justify-center font-mono transition-all"
-                                            :class="[
-                                                day.hasData ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-500 hover:text-white font-bold cursor-pointer' : 'text-gray-300 bg-transparent cursor-not-allowed',
-                                                selectedDate === day.dateStr ? '!bg-blue-600 !text-white ring-2 ring-blue-300 font-bold' : ''
-                                            ]">
-                                            {{ day.dayNum }}
-                                        </button>
+                            <div class="max-h-[60vh] overflow-y-auto custom-scrollbar pr-1">
+                                <template v-if="availablePeriods.length > 0">
+                                    <div v-for="month in availablePeriods" :key="month.monthKey" class="mb-4 last:mb-0">
+                                        <div class="text-[13px] font-bold text-slate-400 mb-2 border-b border-gray-100 pb-1 flex items-center gap-1.5">
+                                            <i class="fa-regular fa-calendar text-blue-400"></i> {{ month.monthLabel }}
+                                        </div>
+                                        <div class="flex flex-wrap gap-2">
+                                            <button v-for="week in month.weeks" :key="week.monday"
+                                                @click="selectWeek(week.monday)"
+                                                class="px-2.5 py-1.5 text-xs rounded-lg transition-all border font-semibold"
+                                                :class="selectedMonday === week.monday ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-slate-50 text-slate-600 border-gray-200 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600'">
+                                                {{ week.weekLabel }}
+                                            </button>
+                                        </div>
                                     </div>
+                                </template>
+                                <div v-else class="text-center text-sm text-gray-400 py-4">
+                                    暂无任何历史数据
                                 </div>
                             </div>
                         </div>
@@ -177,7 +169,6 @@
                                         </td>
                                     </tr>
                                     
-                                    <!-- 展开过去的周记录数据：直接利用表格体系对齐列位 -->
                                     <template v-if="expandedRowKey === item.etf_code">
                                         <tr v-for="week in getPastWeeks(item.etf_code)" :key="week.monday" class="bg-slate-50/80 border-b border-dashed border-gray-100" @click.stop>
                                             <td class="p-2 md:p-3 font-semibold text-slate-500 text-center sticky left-0 bg-slate-50/95 shadow-[1px_0_0_0_#e2e8f0] z-10 etf-name-column text-[14px]">
@@ -196,7 +187,7 @@
                                         </tr>
                                         <tr v-if="getPastWeeks(item.etf_code).length === 0" class="bg-slate-50/80" @click.stop>
                                             <td colspan="7" class="p-4 text-center text-xs text-gray-400 italic">
-                                                当月暂无其他周数据的历史记录
+                                                该月份暂无其他周数据的历史记录
                                             </td>
                                         </tr>
                                     </template>
@@ -222,7 +213,8 @@
             setup() {
                 const loading = ref(true);
                 const allData = ref([]); 
-                const selectedDate = ref('');
+                // 核心状态：现在统一通过选中该周的星期一(monday)来进行定位
+                const selectedMonday = ref('');
                 const expandedRowKey = ref(null); 
 
                 const searchQuery = ref('');
@@ -230,13 +222,9 @@
                 const searchInput = ref(null);
 
                 const showDropdown = ref(false);
-                const currentYear = ref(new Date().getFullYear());
-                const currentMonth = ref(new Date().getMonth()); 
-
                 const sortColumn = ref(null); 
                 const sortOrder = ref('desc'); 
 
-                // 工具：获取指定日期所在周的5天 (周一~周五)
                 const getWeekDays = (dateStr) => {
                     const parts = dateStr.split('-');
                     const y = parseInt(parts[0], 10);
@@ -259,7 +247,6 @@
                     return days;
                 };
 
-                // 工具：计算当前日期是属于本月的第几周
                 const getWeekNumberInMonth = (dateStr) => {
                     const parts = dateStr.split('-');
                     const y = parseInt(parts[0], 10);
@@ -278,8 +265,8 @@
                 };
 
                 const currentWeekHeaders = computed(() => {
-                    if (!selectedDate.value) return [];
-                    const days = getWeekDays(selectedDate.value);
+                    if (!selectedMonday.value) return [];
+                    const days = getWeekDays(selectedMonday.value);
                     return days.map(d => parseInt(d.split('-')[2], 10)); 
                 });
 
@@ -290,16 +277,46 @@
                     return new Set(validDates);
                 });
 
-                const startDateLimit = computed(() => {
-                    if (allData.value.length === 0) return '';
-                    const sortedDates = [...uniqueDatesSet.value].sort((a, b) => a.localeCompare(b));
-                    return sortedDates[0] || '';
+                // 新的下拉数据结构：月份 -> 存在数据的周次
+                const availablePeriods = computed(() => {
+                    const periods = {};
+                    [...uniqueDatesSet.value].forEach(dateStr => {
+                        const wDays = getWeekDays(dateStr);
+                        const monday = wDays[0];
+                        const parts = monday.split('-');
+                        const monthKey = `${parts[0]}-${parts[1]}`;
+                        const monthLabel = `${parts[0]}年${parseInt(parts[1], 10)}月`;
+
+                        if (!periods[monthKey]) {
+                            periods[monthKey] = { monthKey, monthLabel, weeksMap: {} };
+                        }
+
+                        if (!periods[monthKey].weeksMap[monday]) {
+                            periods[monthKey].weeksMap[monday] = {
+                                monday: monday,
+                                weekLabel: getWeekNumberInMonth(monday)
+                            };
+                        }
+                    });
+
+                    // 将对象转为数组，倒序排列(由新到旧)
+                    const result = Object.values(periods).sort((a, b) => b.monthKey.localeCompare(a.monthKey));
+                    result.forEach(m => {
+                        m.weeks = Object.values(m.weeksMap).sort((a, b) => b.monday.localeCompare(a.monday));
+                    });
+                    return result;
                 });
 
-                const endDateLimit = computed(() => {
-                    if (allData.value.length === 0) return '';
-                    const sortedDates = [...uniqueDatesSet.value].sort((a, b) => b.localeCompare(a));
-                    return sortedDates[0] || '';
+                const currentPeriodLabel = computed(() => {
+                    if (!selectedMonday.value) return '';
+                    for (const m of availablePeriods.value) {
+                        for (const w of m.weeks) {
+                            if (w.monday === selectedMonday.value) {
+                                return `${parseInt(m.monthKey.split('-')[1], 10)}月 · ${w.weekLabel}`;
+                            }
+                        }
+                    }
+                    return '';
                 });
 
                 const toggleDropdown = (e) => {
@@ -324,8 +341,8 @@
                     else setTimeout(() => searchInput.value?.focus(), 100);
                 };
 
-                const selectDate = (dateStr) => {
-                    selectedDate.value = dateStr;
+                const selectWeek = (mondayStr) => {
+                    selectedMonday.value = mondayStr;
                     closeDropdown();
                 };
 
@@ -343,60 +360,6 @@
                     }
                 };
 
-                const prevMonth = (e) => {
-                    e.stopPropagation();
-                    if (currentMonth.value === 0) {
-                        currentMonth.value = 11;
-                        currentYear.value--;
-                    } else {
-                        currentMonth.value--;
-                    }
-                };
-
-                const nextMonth = (e) => {
-                    e.stopPropagation();
-                    if (currentMonth.value === 11) {
-                        currentMonth.value = 0;
-                        currentYear.value++;
-                    } else {
-                        currentMonth.value++;
-                    }
-                };
-
-                const isPrevMonthDisabled = computed(() => {
-                    if (!startDateLimit.value) return true;
-                    const start = new Date(startDateLimit.value);
-                    return currentYear.value <= start.getFullYear() && currentMonth.value <= start.getMonth();
-                });
-
-                const isNextMonthDisabled = computed(() => {
-                    if (!endDateLimit.value) return true;
-                    const end = new Date(endDateLimit.value);
-                    return currentYear.value >= end.getFullYear() && currentMonth.value >= end.getMonth();
-                });
-
-                const calendarBlanks = computed(() => {
-                    const firstDay = new Date(currentYear.value, currentMonth.value, 1).getDay();
-                    return firstDay;
-                });
-
-                const calendarDays = computed(() => {
-                    const days = [];
-                    const lastDay = new Date(currentYear.value, currentMonth.value + 1, 0).getDate();
-                    const startLimit = startDateLimit.value;
-                    
-                    for (let d = 1; d <= lastDay; d++) {
-                        const dateStr = `${currentYear.value}-${String(currentMonth.value + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                        days.push({
-                            dayNum: d,
-                            dateStr: dateStr,
-                            hasData: uniqueDatesSet.value.has(dateStr),
-                            isBeforeStart: startLimit && dateStr < startLimit
-                        });
-                    }
-                    return days;
-                });
-
                 const fetchData = async () => {
                     try {
                         loading.value = true;
@@ -405,8 +368,9 @@
                         
                         if (response.ok) {
                             allData.value = await response.json();
-                            if (endDateLimit.value) {
-                                selectedDate.value = endDateLimit.value;
+                            // 自动选中最新的一周（如果没有数据则不设置）
+                            if (availablePeriods.value.length > 0 && availablePeriods.value[0].weeks.length > 0) {
+                                selectedMonday.value = availablePeriods.value[0].weeks[0].monday;
                             }
                         }
                     } catch (error) {
@@ -422,10 +386,9 @@
                     return parseFloat(status.replace(/[^0-9.-]/g, ''));
                 };
 
-                // 主页面数据：按当前日期所在的“这一周”聚合整理
                 const filteredWeekData = computed(() => {
-                    if (!selectedDate.value) return [];
-                    const weekDays = getWeekDays(selectedDate.value); 
+                    if (!selectedMonday.value) return [];
+                    const weekDays = getWeekDays(selectedMonday.value); 
                     
                     const etfMap = {};
                     
@@ -485,9 +448,27 @@
                             }
                         } 
                         else {
-                            // 🌟 默认排序：按选定日期（当天）数据数值大小的绝对值排序
-                            const selectedIdx = weekDays.indexOf(selectedDate.value);
+                            // 🌟 核心改进：智能探测该周内“最新且存在数据”的列索引
+                            let latestValidDayIndex = 4; // 默认从周五开始找
+                            while (latestValidDayIndex >= 0) {
+                                let hasAnyData = validItems.some(item => 
+                                    item.days[latestValidDayIndex] && 
+                                    item.days[latestValidDayIndex].day_status && 
+                                    item.days[latestValidDayIndex].day_status !== '-' && 
+                                    item.days[latestValidDayIndex].day_status !== '--'
+                                );
+                                if (hasAnyData) break;
+                                latestValidDayIndex--;
+                            }
                             
+                            // 1. 如果该周没有任何日线数据，自动依靠上周K绝对值兜底排序
+                            if (latestValidDayIndex < 0) {
+                                const wkA = Math.abs(getStatusVal(a.week_status));
+                                const wkB = Math.abs(getStatusVal(b.week_status));
+                                return wkB - wkA;
+                            }
+
+                            // 2. 有日线数据，取找到的最新的那一天的数据绝对值由大到小排序
                             const getValAbs = (item, idx) => {
                                 const d = item.days[idx];
                                 if (d && d.day_status) {
@@ -497,16 +478,14 @@
                                 return -9999;
                             };
                             
-                            const valA = getValAbs(a, selectedIdx);
-                            const valB = getValAbs(b, selectedIdx);
+                            const valA = getValAbs(a, latestValidDayIndex);
+                            const valB = getValAbs(b, latestValidDayIndex);
                             
-                            // 1. 如果当天双方都有数据，按绝对值由大到小排
                             if (valA > -9999 && valB > -9999) return valB - valA;
-                            // 2. 如果仅一方当天有数据，有数据的排在前面
                             if (valA > -9999) return -1;
                             if (valB > -9999) return 1;
                             
-                            // 3. 【兜底排序1】：如果当天双方都没数据，按本周内其他天最大的绝对值排
+                            // 3. 【兜底排序】：本周其他天最大值 > 上周K
                             const getMaxAbs = (item) => {
                                 let max = -9999;
                                 item.days.forEach(d => {
@@ -517,15 +496,12 @@
                                 });
                                 return max;
                             };
-                            
                             const maxA = getMaxAbs(a);
                             const maxB = getMaxAbs(b);
-                            
                             if (maxA > -9999 && maxB > -9999) return maxB - maxA;
                             if (maxA > -9999) return -1;
                             if (maxB > -9999) return 1;
                             
-                            // 4. 【兜底排序2】：本周日线都无数据，只按“上周K”的绝对值排序
                             const wkA = Math.abs(getStatusVal(a.week_status));
                             const wkB = Math.abs(getStatusVal(b.week_status));
                             return wkB - wkA;
@@ -545,14 +521,12 @@
                 };
 
                 const getPastWeeks = (etf_code) => {
-                    if (!selectedDate.value) return [];
-                    const currentMonth = selectedDate.value.substring(0, 7);
-                    const currentWeekDaysStr = getWeekDays(selectedDate.value);
+                    if (!selectedMonday.value) return [];
+                    const currentMonth = selectedMonday.value.substring(0, 7);
                     
                     const pastData = allData.value.filter(item => 
                         item.etf_code === etf_code && 
                         item.date.startsWith(currentMonth) && 
-                        !currentWeekDaysStr.includes(item.date) &&
                         (item.day_status || item.week_status)
                     );
                     
@@ -560,10 +534,13 @@
                     pastData.forEach(item => {
                         const wDays = getWeekDays(item.date);
                         const monday = wDays[0];
+                        // 排除当前正在主界面展示的这一周
+                        if (monday === selectedMonday.value) return; 
+
                         if (!weekMap[monday]) {
                             weekMap[monday] = {
                                 monday: monday,
-                                weekLabel: getWeekNumberInMonth(item.date),
+                                weekLabel: getWeekNumberInMonth(monday),
                                 days: [null, null, null, null, null],
                                 week_status: null
                             };
@@ -612,11 +589,10 @@
                 });
 
                 return {
-                    loading, selectedDate, filteredWeekData, getColorClass,
+                    loading, selectedMonday, filteredWeekData, getColorClass,
                     expandedRowKey, toggleRow, getPastWeeks,
-                    showDropdown, currentYear, currentMonth, calendarBlanks, calendarDays,
-                    isPrevMonthDisabled, isNextMonthDisabled, toggleDropdown, closeDropdown,
-                    selectDate, prevMonth, nextMonth, currentWeekHeaders,
+                    showDropdown, toggleDropdown, closeDropdown,
+                    availablePeriods, currentPeriodLabel, selectWeek, currentWeekHeaders,
                     getEtfNameStyle,
                     searchQuery, showSearch, searchInput, toggleSearch, openSearch,
                     sortColumn, sortOrder, handleSort
