@@ -115,7 +115,7 @@
 
                                     <th class="py-2.5 px-1 md:px-2 cursor-pointer hover:bg-slate-200 transition-colors" @click="handleSort('week_status')">
                                         <div class="flex items-center justify-center gap-1">
-                                            
+                                            周线
                                             <div class="flex flex-col text-[9px] leading-[8px] text-gray-300">
                                                 <i class="fa-solid fa-caret-up" :class="{'text-blue-600': sortColumn === 'week_status' && sortOrder === 'asc'}"></i>
                                                 <i class="fa-solid fa-caret-down" :class="{'text-blue-600': sortColumn === 'week_status' && sortOrder === 'desc'}"></i>
@@ -244,7 +244,7 @@
                     return `第${chineseNumbers[weekNum - 1] || weekNum}周`;
                 };
 
-                // 🌟 核心逻辑：穿越时间提取真正的“”
+                // 🌟 核心逻辑：穿越时间提取真正的“周线”
                 // 无论当前看了哪一周，它都会强行去寻找“该周五”之前最新记录下来的有效周K线，无视本周中途产生的任何周线突变
                 const getPreviousWeekK = (etf_code, fridayDateStr) => {
                     const records = allData.value.filter(item => 
@@ -383,7 +383,7 @@
                         }
                     });
                     
-                    // 🌟 给每一个有效项，注入纯净版、穿越计算出来的 “” 
+                    // 🌟 给每一个有效项，注入纯净版、穿越计算出来的 “周线” 
                     let validItems = Object.values(etfMap).map(item => {
                         item.week_status = getPreviousWeekK(item.etf_code, fridayDateStr);
                         return item;
