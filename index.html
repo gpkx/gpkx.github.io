@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ETF涨跌幅监控系统</title>
+    <title>ETF涨跌幅异动监控系统</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
@@ -42,7 +42,7 @@
         <header class="bg-slate-800 text-white shadow-md sticky top-0 z-50 h-[56px]">
             <div class="container mx-auto px-4 h-full flex justify-between items-center">
                 <h1 class="text-lg font-bold flex items-center gap-2">
-                    <i class="fa-solid fa-chart-line text-emerald-400"></i> ETF涨跌幅监控系统
+                    <i class="fa-solid fa-chart-line text-emerald-400"></i> ETF涨跌幅异动监控系统
                 </h1>
                 <span class="text-xs bg-emerald-600 px-2 py-1 rounded font-mono animate-pulse">● LIVE同步中</span>
             </div>
@@ -58,7 +58,6 @@
                 
                 <div class="flex flex-row gap-2 relative z-40">
                     <div class="flex-1 bg-white rounded-xl shadow-sm border border-gray-100 relative min-w-0">
-                        <!-- 下拉按钮 -->
                         <button @click.stop="toggleDropdown" class="w-full flex items-center justify-between border-transparent rounded-xl px-3 py-2.5 text-sm font-semibold hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500">
                             <span class="flex items-center gap-1.5 truncate">
                                 <span class="truncate">📅 历史周期：{{ currentPeriodLabel || '数据加载中...' }}</span>
@@ -66,7 +65,6 @@
                             <i class="fa-solid fa-chevron-down text-gray-400 transition-transform duration-200 ml-1 shrink-0" :class="{'rotate-180': showDropdown}"></i>
                         </button>
 
-                        <!-- 新版下拉选择器：按月份、周分组 -->
                         <div v-if="showDropdown" @click.stop class="absolute left-0 mt-2 bg-white border border-gray-200 rounded-xl shadow-xl z-50 p-4 w-[90vw] max-w-sm sm:w-80">
                             <div class="max-h-[60vh] overflow-y-auto custom-scrollbar pr-1">
                                 <template v-if="availablePeriods.length > 0">
@@ -133,7 +131,7 @@
 
                                     <th class="py-2.5 px-1 md:px-2 cursor-pointer hover:bg-slate-200 transition-colors" @click="handleSort('week_status')">
                                         <div class="flex items-center justify-center gap-1">
-                                            上周
+                                            上周K
                                             <div class="flex flex-col text-[9px] leading-[8px] text-gray-300">
                                                 <i class="fa-solid fa-caret-up" :class="{'text-blue-600': sortColumn === 'week_status' && sortOrder === 'asc'}"></i>
                                                 <i class="fa-solid fa-caret-down" :class="{'text-blue-600': sortColumn === 'week_status' && sortOrder === 'desc'}"></i>
@@ -213,7 +211,6 @@
             setup() {
                 const loading = ref(true);
                 const allData = ref([]); 
-                // 核心状态：现在统一通过选中该周的星期一(monday)来进行定位
                 const selectedMonday = ref('');
                 const expandedRowKey = ref(null); 
 
@@ -277,7 +274,6 @@
                     return new Set(validDates);
                 });
 
-                // 新的下拉数据结构：月份 -> 存在数据的周次
                 const availablePeriods = computed(() => {
                     const periods = {};
                     [...uniqueDatesSet.value].forEach(dateStr => {
@@ -299,7 +295,6 @@
                         }
                     });
 
-                    // 将对象转为数组，倒序排列(由新到旧)
                     const result = Object.values(periods).sort((a, b) => b.monthKey.localeCompare(a.monthKey));
                     result.forEach(m => {
                         m.weeks = Object.values(m.weeksMap).sort((a, b) => b.monday.localeCompare(a.monday));
@@ -368,7 +363,6 @@
                         
                         if (response.ok) {
                             allData.value = await response.json();
-                            // 自动选中最新的一周（如果没有数据则不设置）
                             if (availablePeriods.value.length > 0 && availablePeriods.value[0].weeks.length > 0) {
                                 selectedMonday.value = availablePeriods.value[0].weeks[0].monday;
                             }
@@ -405,7 +399,9 @@
                             }
                             etfMap[item.etf_code].days[idx] = item;
                             
-                            if (item.week_status && item.week_status !== '-' && item.week_status !== '--') {
+                            // 🌟 核心修复：因为 allData 是最新的日期排在最前，
+                            // 所以遇到第一个有数据的 week_status，就立马锁死！确保不被这周里更旧的星期几的数据给覆盖回去。
+                            if (!etfMap[item.etf_code].week_status && item.week_status && item.week_status !== '-' && item.week_status !== '--') {
                                 etfMap[item.etf_code].week_status = item.week_status;
                             }
                         }
@@ -425,7 +421,6 @@
                         );
                     }
 
-                    // 排序逻辑
                     validItems.sort((a, b) => {
                         if (sortColumn.value) {
                             if (sortColumn.value === 'etf_name') {
@@ -448,8 +443,7 @@
                             }
                         } 
                         else {
-                            // 🌟 核心改进：智能探测该周内“最新且存在数据”的列索引
-                            let latestValidDayIndex = 4; // 默认从周五开始找
+                            let latestValidDayIndex = 4;
                             while (latestValidDayIndex >= 0) {
                                 let hasAnyData = validItems.some(item => 
                                     item.days[latestValidDayIndex] && 
@@ -461,14 +455,12 @@
                                 latestValidDayIndex--;
                             }
                             
-                            // 1. 如果该周没有任何日线数据，自动依靠上周绝对值兜底排序
                             if (latestValidDayIndex < 0) {
                                 const wkA = Math.abs(getStatusVal(a.week_status));
                                 const wkB = Math.abs(getStatusVal(b.week_status));
                                 return wkB - wkA;
                             }
 
-                            // 2. 有日线数据，取找到的最新的那一天的数据绝对值由大到小排序
                             const getValAbs = (item, idx) => {
                                 const d = item.days[idx];
                                 if (d && d.day_status) {
@@ -485,7 +477,6 @@
                             if (valA > -9999) return -1;
                             if (valB > -9999) return 1;
                             
-                            // 3. 【兜底排序】：本周其他天最大值 > 上周
                             const getMaxAbs = (item) => {
                                 let max = -9999;
                                 item.days.forEach(d => {
@@ -534,7 +525,6 @@
                     pastData.forEach(item => {
                         const wDays = getWeekDays(item.date);
                         const monday = wDays[0];
-                        // 排除当前正在主界面展示的这一周
                         if (monday === selectedMonday.value) return; 
 
                         if (!weekMap[monday]) {
@@ -548,7 +538,8 @@
                         const idx = wDays.indexOf(item.date);
                         weekMap[monday].days[idx] = item;
                         
-                        if (item.week_status && item.week_status !== '-' && item.week_status !== '--') {
+                        // 🌟 这里也同样加上核心修复锁，防止过去周次的数据被颠倒覆盖
+                        if (!weekMap[monday].week_status && item.week_status && item.week_status !== '-' && item.week_status !== '--') {
                             weekMap[monday].week_status = item.week_status;
                         }
                     });
