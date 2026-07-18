@@ -227,7 +227,7 @@ def send_telegram(text, video_path=None, photos=None):
         print("⚠️ 警告：未检测到 Telegram Bot Token 或 Chat ID。跳过推送。")
         return
         
-    tg_host = "[https://api.telegram.org/bot](https://api.telegram.org/bot)"
+    tg_host = "https://api.telegram.org/bot"
     
     try:
         # 1. 发送长文本文章
