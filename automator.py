@@ -58,9 +58,9 @@ def parse_pct_to_float(val_str):
 def format_quant_voice(val_str):
     try:
         val = float(val_str.replace('%', '').replace('+', ''))
-        if val > 0: return f"A T R 强势拉升了{abs(val)}%"
-        elif val < 0: return f"A T R 回撤了{abs(val)}%"
-        return "A T R 处于零轴震荡区"
+        if val > 0: return f"ATR 强势拉升了{abs(val)}%"
+        elif val < 0: return f"ATR 回撤了{abs(val)}%"
+        return "ATR 处于零轴震荡区"
     except:
         return "暂无有效读数"
 
@@ -84,8 +84,8 @@ def clean_for_tts(text):
     elif not isinstance(text, str): text = str(text)
     text = re.sub(r'[\U00010000-\U0010ffff]', '', text)
     text = text.replace('*', '').replace('_', '').replace('#', '').replace('`', '')
-    text = re.sub(r'(?i)\betf\b', ' E T F ', text)
-    text = re.sub(r'(?i)\batr\b', ' A T R ', text)
+    text = re.sub(r'(?i)\betf\b', ' ETF ', text)
+    text = re.sub(r'(?i)\batr\b', ' ATR ', text)
     text = re.sub(r'(?i)\ba股\b', ' A 股 ', text)
     return text.strip()
 
@@ -98,7 +98,7 @@ def create_srt(text, duration, filename):
     
     start_time = "00:00:00,000"
     end_time = format_time(duration)
-    clean_text = text.replace(' E T F ', 'ETF').replace(' A T R ', 'ATR')
+    clean_text = text.replace(' ETF ', 'ETF').replace(' ATR ', 'ATR')
     lines = [clean_text[i:i+50] for i in range(0, len(clean_text), 50)]
     
     srt_content = f"1\n{start_time} --> {end_time}\n" + "\n".join(lines) + "\n"
@@ -187,7 +187,7 @@ def call_ai_director(etf_list, time_label, report_type):
         🚨 【最高指令】客观真实，只基于上方数据解读，不说假话！
 
         【输出要求】严格返回JSON，包含：
-        - "video_intro": 短视频开场口播（20-30字，打招呼+抛出结论）。英文写 E T F。
+        - "video_intro": 短视频开场口播（20-30字，打招呼+抛出结论）。英文写 ETF。
         - "etf_narratives": 【数组】包含{len(etf_list)}句短评，严格对应传入的ETF！口语化解说。
         - "xhs_title": 小红书爆款标题。
         - "xhs_article": 小红书正文（排版好看，文风活泼，重点突出，文末引导关注）。
