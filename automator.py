@@ -14,7 +14,7 @@ import requests
 from PIL import Image
 
 # ==========================================
-# 1. 基础配置与智能环境感知
+# 1. 基础配置
 # ==========================================
 TARGET_URL = "https://gpkx.github.io/" 
 TV_CHART_URL = "https://cn.tradingview.com/chart/fxUqvHrk/" 
@@ -84,10 +84,10 @@ def clean_for_tts(text):
     text = text.replace('*', '').replace('_', '').replace('#', '').replace('`', '')
     text = re.sub(r'(?i)\betf\b', ' ETF ', text)
     text = re.sub(r'(?i)\batr\b', ' ATR ', text)
-    text = re.sub(r'(?i)\ba股\b', ' A 股 ', text)
+    text = re.sub(r'(?i)\ba股\b', ' A股 ', text)
     return text.strip()
 
-# 🚀 改进 1：智能折行算法
+# 🚀 修复字幕宽度：加宽到 24 字符
 def create_srt(text, duration, filename):
     def format_time(seconds):
         m, s = divmod(seconds, 60)
@@ -99,19 +99,16 @@ def create_srt(text, duration, filename):
     end_time = format_time(duration)
     clean_text = text.replace(' ETF ', 'ETF').replace(' ATR ', 'ATR')
     
-    # 竖屏 720px 宽度，安全显示字数约为 16-18 个汉字
-    max_chars_per_line = 16 
+    max_chars_per_line = 24 
     lines = [clean_text[i:i+max_chars_per_line] for i in range(0, len(clean_text), max_chars_per_line)]
     text_block = "\n".join(lines)
     
     srt_content = f"1\n{start_time} --> {end_time}\n{text_block}\n"
     with open(filename, "w", encoding="utf-8") as f: f.write(srt_content)
 
-# 🚀 改进 2：应用普惠体、黑色、缩小字号、降低边距
 def get_subtitle_filter(srt_file):
     if srt_file and os.path.exists(srt_file):
         srt_path = srt_file.replace('\\', '\\\\').replace(':', '\\:')
-        # Alignment=2 保证底部居中，FontSize=8 缩小一号，MarginV=20 降低下边距
         return f"subtitles={srt_path}:force_style='FontName=Alibaba PuHuiTi,FontSize=8,PrimaryColour=&H00000000,Outline=0,Shadow=0,MarginV=20,Alignment=2'"
     return ""
 
@@ -158,7 +155,7 @@ def create_static_video(img_path, output_video, duration, fps=30, srt_file=None)
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 # ==========================================
-# 2. AI 中枢逻辑 (🚀 改进 3：强制封面包含 Top4 数据)
+# 2. AI 中枢逻辑 (🚀 修复：纯中文强制指令)
 # ==========================================
 def call_ai_director(etf_list, time_label, report_type):
     api_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
@@ -185,7 +182,6 @@ def call_ai_director(etf_list, time_label, report_type):
         - "gzh_article": 微信公众号正文
         """
     else:
-        # 强制 AI 将数据渲染进封面 HTML
         prompt = f"""
         你现在是一位有10年实战经验、语气亲和且专业的A股量化操盘手。{prompt_context}
         
@@ -195,13 +191,13 @@ def call_ai_director(etf_list, time_label, report_type):
         🚨 【最高指令】客观真实，只基于上方数据解读，不说假话！
 
         【输出要求】严格返回JSON，包含：
-        - "video_intro": 短视频开场口播（20-30字，打招呼+抛出结论）。英文写 ETF。
-        - "etf_narratives": 【数组】包含{len(etf_list)}句短评，严格对应传入的ETF！口语化解说。
+        - "video_intro": 短视频开场口播（20-30字，打招呼+抛出结论）。🚨必须全部使用纯中文生成，绝对不允许出现整段英文，仅在提到ETF这三个字时，写成大写的 ETF。
+        - "etf_narratives": 【数组】包含{len(etf_list)}句短评，严格对应传入的ETF！纯中文口语化解说。
         - "xhs_title": 小红书爆款标题。
-        - "xhs_article": 小红书正文（排版好看，文风活泼，重点突出，文末引导关注）。
+        - "xhs_article": 小红书正文。
         - "gzh_title": 公众号标题。
-        - "gzh_article": 公众号正文（深度、娓娓道来，文末引导评论区交流）。
-        - "cover_html": HTML5+CSS。720x1280。要求：现代金融风，浅色高级渐变背景。标题【{COVER_TITLE}】，副标题【{COVER_SUBTITLE}】。🚨【极其重要】：必须在副标题下方，用醒目、美观的卡片或列表，把以上 4只ETF 的名称和涨跌幅数据排版渲染出来！封面绝不能空！所有字体设置为 'Alibaba PuHuiTi', 'Microsoft YaHei', sans-serif。居中对齐。
+        - "gzh_article": 公众号正文。
+        - "cover_html": HTML5+CSS。720x1280。要求：现代金融风，浅色高级渐变背景。标题【{COVER_TITLE}】，副标题【{COVER_SUBTITLE}】。🚨必须在副标题下方，用醒目、美观的卡片或列表，把以上 4只ETF 的名称和涨跌幅数据排版渲染出来！封面绝不能空！所有字体设置为 'Alibaba PuHuiTi', 'Microsoft YaHei', sans-serif。居中对齐。
         """
 
     payload = {
@@ -257,6 +253,18 @@ async def main():
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(viewport={'width': 720, 'height': 1280})
+        
+        # 🚀 核心修复：注入 TV_SESSION_ID 恢复你的私有指标和模板
+        tv_session = os.getenv('TV_SESSION_ID', '').strip()
+        if tv_session:
+            print("🔑 检测到 TV_SESSION_ID，正在注入授权 Cookie...")
+            await context.add_cookies([
+                {'name': 'sessionid', 'value': tv_session, 'domain': '.tradingview.com', 'path': '/'},
+                {'name': 'sessionid', 'value': tv_session, 'domain': '.cn.tradingview.com', 'path': '/'}
+            ])
+        else:
+            print("⚠️ 警告：未配置 TV_SESSION_ID，图表将以游客模式加载，无法显示自定义指标！")
+
         page = await context.new_page()
 
         print("🔍 正在提取核心数据...")
@@ -333,8 +341,7 @@ async def main():
         await page.wait_for_timeout(1000)
         await page.screenshot(path="disclaimer.png")
 
-        # 🚀 改进 4：嵌入“人类键盘操作”方案
-        print("🌐 正在抓取 TV 原生图表 (应用自动化视窗重置与裁切)...")
+        print("🌐 正在抓取 TV 原生图表 (带授权信息与自动化排版)...")
         clean_css = ".layout__area--top, .layout__area--left, .layout__area--right, .layout__area--bottom { display: none !important; } .layout__area--center { position: fixed !important; top: 0 !important; left: 0 !important; width: 100vw !important; height: 100vh !important; z-index: 9999 !important; }"
         
         for i, etf in enumerate(etf_list):
@@ -343,10 +350,8 @@ async def main():
             await page.goto(f"{TV_CHART_URL.rstrip('/')}/?symbol={symbol}&interval={tv_int}", wait_until="domcontentloaded")
             
             await page.wait_for_timeout(5000)
-            # 模拟按下 Alt + R (重置图表)
             await page.keyboard.press("Alt+r")
             await page.wait_for_timeout(1000)
-            # 模拟按下 Shift + 向右方向键 (强制贴边最新K线)
             await page.keyboard.press("Shift+ArrowRight")
             await page.wait_for_timeout(1000)
 
@@ -356,7 +361,6 @@ async def main():
             document.body.style.transformOrigin = 'top left';
             """
             await page.evaluate(zoom_js)
-            # 强行派发 resize 逼迫画布重绘填满
             await page.evaluate("window.dispatchEvent(new Event('resize'));")
             await page.wait_for_timeout(3000)
             
