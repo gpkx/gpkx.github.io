@@ -14,27 +14,26 @@ import requests
 from PIL import Image
 
 # ==========================================
-# 1. 基础配置与智能环境感知 (适配新版UI)
+# 1. 基础配置与智能环境感知
 # ==========================================
 TARGET_URL = "https://gpkx.github.io/" 
 TV_CHART_URL = "https://cn.tradingview.com/chart/fxUqvHrk/" 
 TZ = pytz.timezone('Asia/Shanghai')
 NOW = datetime.now(TZ)
 
-# 智能识别运行场景
-TODAY_WEEKDAY = NOW.weekday()  # 0=周一, 4=周五, 5=周六
+TODAY_WEEKDAY = NOW.weekday()  
 IS_SATURDAY = TODAY_WEEKDAY == 5
 
 if IS_SATURDAY:
     TIME_LABEL = "周线收盘"
     REPORT_TYPE = "weekly"
     TV_INTERVAL = "1W"
-    TARGET_COL_IDX = -1  # 新版UI: 周线在最后一列
+    TARGET_COL_IDX = -1 
 else:
     TIME_LABEL = "日线收盘"
     REPORT_TYPE = "daily"
     TV_INTERVAL = "1D"
-    TARGET_COL_IDX = TODAY_WEEKDAY + 1  # 新版UI: 0列是名称，周一为1，以此类推
+    TARGET_COL_IDX = TODAY_WEEKDAY + 1  
 
 DATE_STR = NOW.strftime("%m月%d日")
 COVER_TITLE = "本周ETF主力资金异动" if IS_SATURDAY else "今日ETF异动前四数据"
@@ -49,7 +48,6 @@ def get_tv_symbol(code):
     return f"SZSE:{code}"
 
 def parse_pct_to_float(val_str):
-    """提取百分比用于排序"""
     try:
         return float(val_str.replace('%', '').replace('+', ''))
     except:
@@ -89,6 +87,7 @@ def clean_for_tts(text):
     text = re.sub(r'(?i)\ba股\b', ' A 股 ', text)
     return text.strip()
 
+# 🚀 改进 1：智能折行算法
 def create_srt(text, duration, filename):
     def format_time(seconds):
         m, s = divmod(seconds, 60)
@@ -99,10 +98,22 @@ def create_srt(text, duration, filename):
     start_time = "00:00:00,000"
     end_time = format_time(duration)
     clean_text = text.replace(' ETF ', 'ETF').replace(' ATR ', 'ATR')
-    lines = [clean_text[i:i+50] for i in range(0, len(clean_text), 50)]
     
-    srt_content = f"1\n{start_time} --> {end_time}\n" + "\n".join(lines) + "\n"
+    # 竖屏 720px 宽度，安全显示字数约为 16-18 个汉字
+    max_chars_per_line = 16 
+    lines = [clean_text[i:i+max_chars_per_line] for i in range(0, len(clean_text), max_chars_per_line)]
+    text_block = "\n".join(lines)
+    
+    srt_content = f"1\n{start_time} --> {end_time}\n{text_block}\n"
     with open(filename, "w", encoding="utf-8") as f: f.write(srt_content)
+
+# 🚀 改进 2：应用普惠体、黑色、缩小字号、降低边距
+def get_subtitle_filter(srt_file):
+    if srt_file and os.path.exists(srt_file):
+        srt_path = srt_file.replace('\\', '\\\\').replace(':', '\\:')
+        # Alignment=2 保证底部居中，FontSize=8 缩小一号，MarginV=20 降低下边距
+        return f"subtitles={srt_path}:force_style='FontName=Alibaba PuHuiTi,FontSize=8,PrimaryColour=&H00000000,Outline=0,Shadow=0,MarginV=20,Alignment=2'"
+    return ""
 
 def create_zoom_video(img_path, output_video, duration, fps=30, zoom_type='main', srt_file=None):
     frames_dir = f"temp_frames_{os.path.basename(img_path).split('.')[0]}"
@@ -127,9 +138,8 @@ def create_zoom_video(img_path, output_video, duration, fps=30, zoom_type='main'
         frame.save(f"{frames_dir}/frame_{i:04d}.jpg", quality=90)
 
     vf_filters = []
-    if srt_file and os.path.exists(srt_file):
-        srt_path = srt_file.replace('\\', '\\\\').replace(':', '\\:')
-        vf_filters.append(f"subtitles={srt_path}:force_style='FontName=Microsoft YaHei,FontSize=10,PrimaryColour=&H00000000,Outline=0,Shadow=0,MarginV=40'")
+    sub_filter = get_subtitle_filter(srt_file)
+    if sub_filter: vf_filters.append(sub_filter)
 
     cmd = ["ffmpeg", "-y", "-framerate", str(fps), "-i", f"{frames_dir}/frame_%04d.jpg"]
     if vf_filters: cmd.extend(["-vf", ",".join(vf_filters)])
@@ -139,9 +149,8 @@ def create_zoom_video(img_path, output_video, duration, fps=30, zoom_type='main'
 
 def create_static_video(img_path, output_video, duration, fps=30, srt_file=None):
     vf_filters = []
-    if srt_file and os.path.exists(srt_file):
-        srt_path = srt_file.replace('\\', '\\\\').replace(':', '\\:')
-        vf_filters.append(f"subtitles={srt_path}:force_style='FontName=Microsoft YaHei,FontSize=10,PrimaryColour=&H00000000,Outline=0,Shadow=0,MarginV=40'")
+    sub_filter = get_subtitle_filter(srt_file)
+    if sub_filter: vf_filters.append(sub_filter)
 
     cmd = ["ffmpeg", "-y", "-loop", "1", "-i", img_path, "-t", str(duration)]
     if vf_filters: cmd.extend(["-vf", ",".join(vf_filters)])
@@ -149,7 +158,7 @@ def create_static_video(img_path, output_video, duration, fps=30, srt_file=None)
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 # ==========================================
-# 2. AI 中枢逻辑
+# 2. AI 中枢逻辑 (🚀 改进 3：强制封面包含 Top4 数据)
 # ==========================================
 def call_ai_director(etf_list, time_label, report_type):
     api_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
@@ -168,16 +177,15 @@ def call_ai_director(etf_list, time_label, report_type):
     if not etf_list:
         prompt = f"""
         你现在是一位有10年实战经验、语气亲和且专业的A股量化操盘手。{prompt_context}
-        但是今天没有任何ETF触发我们的异动阈值。
-        请生成通报文章，强调量化纪律：“宁缺毋滥，没有信号绝不盲目出手”。
-        
+        但是今天没有任何ETF触发我们的异动阈值。请生成通报文章。
         【输出要求】返回 JSON：
-        - "xhs_title": 小红书爆款标题（带emoji）
-        - "xhs_article": 小红书正文（活泼、多emoji、排版空行、文末引导关注）
-        - "gzh_title": 微信公众号标题（专业、吸引眼球）
-        - "gzh_article": 微信公众号正文（像资深老友复盘，文末引导交流）
+        - "xhs_title": 小红书爆款标题
+        - "xhs_article": 小红书正文
+        - "gzh_title": 微信公众号标题
+        - "gzh_article": 微信公众号正文
         """
     else:
+        # 强制 AI 将数据渲染进封面 HTML
         prompt = f"""
         你现在是一位有10年实战经验、语气亲和且专业的A股量化操盘手。{prompt_context}
         
@@ -193,7 +201,7 @@ def call_ai_director(etf_list, time_label, report_type):
         - "xhs_article": 小红书正文（排版好看，文风活泼，重点突出，文末引导关注）。
         - "gzh_title": 公众号标题。
         - "gzh_article": 公众号正文（深度、娓娓道来，文末引导评论区交流）。
-        - "cover_html": HTML5+CSS。720x1280。要求：**现代金融风，浅色高级渐变背景，卡片化布局（微圆角微阴影），设计感强。**标题【{COVER_TITLE}】，副标题【{COVER_SUBTITLE}】。字体Microsoft YaHei，居中。
+        - "cover_html": HTML5+CSS。720x1280。要求：现代金融风，浅色高级渐变背景。标题【{COVER_TITLE}】，副标题【{COVER_SUBTITLE}】。🚨【极其重要】：必须在副标题下方，用醒目、美观的卡片或列表，把以上 4只ETF 的名称和涨跌幅数据排版渲染出来！封面绝不能空！所有字体设置为 'Alibaba PuHuiTi', 'Microsoft YaHei', sans-serif。居中对齐。
         """
 
     payload = {
@@ -217,28 +225,18 @@ def call_ai_director(etf_list, time_label, report_type):
             time.sleep(3)
     sys.exit(1)
 
-# ==========================================
-# 3. 完整恢复的 TG 发送函数
-# ==========================================
 def send_telegram(text, video_path=None, photos=None):
     bot_token = os.getenv('TELEGRAM_BOT_TOKEN', '').strip()
     chat_id = os.getenv('TELEGRAM_CHAT_ID', '').strip()
     if not bot_token or not chat_id:
-        print("⚠️ 警告：未检测到 Telegram Bot Token 或 Chat ID。跳过推送。")
         return
         
-    tg_host = "https://api.telegram.org/bot"
-    
+    tg_host = "[https://api.telegram.org/bot](https://api.telegram.org/bot)"
     try:
-        # 1. 发送长文本文章
         requests.post(f"{tg_host}{bot_token}/sendMessage", data={'chat_id': chat_id, 'text': text}).raise_for_status()
-        
-        # 2. 发送视频
         if video_path and os.path.exists(video_path):
             with open(video_path, 'rb') as vf:
                 requests.post(f"{tg_host}{bot_token}/sendVideo", data={'chat_id': chat_id}, files={'video': vf}, timeout=120).raise_for_status()
-
-        # 3. 发送图片集
         if photos:
             for i in range(0, len(photos), 10):
                 chunk, media_group, files = photos[i:i+10], [], {}
@@ -249,8 +247,6 @@ def send_telegram(text, video_path=None, photos=None):
                 if media_group:
                     requests.post(f"{tg_host}{bot_token}/sendMediaGroup", data={'chat_id': chat_id, 'media': json.dumps(media_group)}, files=files, timeout=60).raise_for_status()
                 for f in files.values(): f.close()
-                
-        print("✈️ Telegram 消息推送成功！")
     except Exception as e:
         print(f"🛑 推送至 Telegram 失败: {e}")
         sys.exit(1)
@@ -263,12 +259,11 @@ async def main():
         context = await browser.new_context(viewport={'width': 720, 'height': 1280})
         page = await context.new_page()
 
-        print("🔍 正在根据新版结构智能提取数据...")
+        print("🔍 正在提取核心数据...")
         etf_list = []
         try:
             await page.goto(TARGET_URL, wait_until="domcontentloaded")
             await page.wait_for_timeout(3000)
-            
             row_data = await page.evaluate('''() => {
                 return Array.from(document.querySelectorAll('tr, .el-table__row')).map(tr => {
                     return Array.from(tr.querySelectorAll('td, th')).map(td => td.innerText.trim());
@@ -278,43 +273,35 @@ async def main():
             for row in row_data:
                 name_cell = row[0]
                 code_match = re.search(r'\b(5\d{5}|1\d{5})\b', name_cell)
-                
                 if code_match:
                     code = code_match.group(1)
                     name = re.sub(r'\d+', '', name_cell).strip()
                     target_val = row[TARGET_COL_IDX]
-                    
                     if '%' in target_val:
                         etf_list.append({"name": name, "code": code, "change": target_val})
             
             etf_list.sort(key=lambda x: abs(parse_pct_to_float(x['change'])), reverse=True)
             etf_list = etf_list[:4]
-            
         except Exception as e:
             print(f"提取数据发生异常: {e}")
 
-        # 如果没有数据，推送通报文章并退出
         if not etf_list:
-            print("⚠️ 目标时段无有效信号，生成通报...")
             ai_script = call_ai_director([], TIME_LABEL, REPORT_TYPE)
             tg_msg = f"📝 【小红书版】\n💡 {ai_script.get('xhs_title', '')}\n\n{ai_script.get('xhs_article', '')}\n\n====================\n\n📝 【微信公众号版】\n💡 {ai_script.get('gzh_title', '')}\n\n{ai_script.get('gzh_article', '')}"
             send_telegram(tg_msg)
             await browser.close()
-            print("✅ 通报任务完成，完美退出。")
             sys.exit(0)
 
-        # ======================= 下方为有数据时的渲染流程 =======================
-        print("🎭 正在调度 AI 专家生成双端文章与视频剧本...")
+        print("🎭 正在生成剧本并渲染封面 (含 Top4 数据)...")
         ai_script = call_ai_director(etf_list, TIME_LABEL, REPORT_TYPE)
         
-        print("🎨 正在渲染 封面、钩子及免责声明海报...")
         await page.set_content(ai_script.get('cover_html', '<html></html>'))
         await page.wait_for_timeout(2000) 
         await page.screenshot(path="cover_image.png")
 
         hook_html = """
         <!DOCTYPE html><html><head><meta charset="UTF-8"><style>
-            body { background: linear-gradient(135deg, #f8fafc, #e2e8f0); display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: 'Microsoft YaHei'; height: 100vh; margin: 0; text-align: center; }
+            body { background: linear-gradient(135deg, #f8fafc, #e2e8f0); display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: 'Alibaba PuHuiTi', 'Microsoft YaHei'; height: 100vh; margin: 0; text-align: center; }
             .card { background: rgba(255, 255, 255, 0.8); padding: 60px 40px; border-radius: 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); }
             h1 { color: #1e293b; font-size: 55px; margin-bottom: 40px; font-weight: bold; }
             p { font-size: 34px; line-height: 2.2; color: #475569; }
@@ -330,10 +317,9 @@ async def main():
         await page.wait_for_timeout(1000)
         await page.screenshot(path="hook.png")
 
-        # 补回原有的免责声明页面渲染
         disclaimer_html = """
         <!DOCTYPE html><html><head><meta charset="UTF-8"><style>
-            body { background: #f8fafc; display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: 'Microsoft YaHei'; height: 100vh; margin: 0; padding: 0 40px; text-align: center; border: 20px solid #f1f5f9; box-sizing: border-box; }
+            body { background: #f8fafc; display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: 'Alibaba PuHuiTi', 'Microsoft YaHei'; height: 100vh; margin: 0; padding: 0 40px; text-align: center; border: 20px solid #f1f5f9; box-sizing: border-box; }
             h1 { color: #0f172a; font-size: 60px; margin-bottom: 50px; font-weight: bold; letter-spacing: 5px; }
             p { font-size: 32px; line-height: 2; color: #475569; }
             .footer { margin-top: 60px; font-size: 24px; color: #94a3b8; border-top: 2px solid #e2e8f0; padding-top: 30px; width: 80%; }
@@ -347,44 +333,33 @@ async def main():
         await page.wait_for_timeout(1000)
         await page.screenshot(path="disclaimer.png")
 
+        # 🚀 改进 4：嵌入“人类键盘操作”方案
         print("🌐 正在抓取 TV 原生图表 (应用自动化视窗重置与裁切)...")
         clean_css = ".layout__area--top, .layout__area--left, .layout__area--right, .layout__area--bottom { display: none !important; } .layout__area--center { position: fixed !important; top: 0 !important; left: 0 !important; width: 100vw !important; height: 100vh !important; z-index: 9999 !important; }"
         
         for i, etf in enumerate(etf_list):
             symbol = get_tv_symbol(etf['code'])
-            
-            # 兼容 TV 的周线参数 (TV中周线通常用 W，日线用 D 或 1D)
             tv_int = "W" if TV_INTERVAL == "1W" else TV_INTERVAL
             await page.goto(f"{TV_CHART_URL.rstrip('/')}/?symbol={symbol}&interval={tv_int}", wait_until="domcontentloaded")
             
-            # 1. 充分等待图表底层 Canvas 画布加载完毕
             await page.wait_for_timeout(5000)
-            
-            # 🚀 核心修复 1：模拟按下 Alt + R (重置图表，自动修正因分辨率突变导致的K线畸变)
+            # 模拟按下 Alt + R (重置图表)
             await page.keyboard.press("Alt+r")
             await page.wait_for_timeout(1000)
-            
-            # 🚀 核心修复 2：模拟按下 Shift + 向右方向键 (强制时间轴死死贴住最右侧的最新K线)
+            # 模拟按下 Shift + 向右方向键 (强制贴边最新K线)
             await page.keyboard.press("Shift+ArrowRight")
             await page.wait_for_timeout(1000)
 
-            # 2. 注入纯净版 CSS 抹除所有边框UI
             await page.add_style_tag(content=clean_css)
-            
-            # 3. 放大 115% 
             zoom_js = """
             document.body.style.transform = 'scale(1.15)';
             document.body.style.transformOrigin = 'top left';
             """
             await page.evaluate(zoom_js)
-            
-            # 🚀 核心修复 3：强行派发一个 resize 窗口变化事件，逼迫 TV 画布重新渲染填满白边
+            # 强行派发 resize 逼迫画布重绘填满
             await page.evaluate("window.dispatchEvent(new Event('resize'));")
-            
-            # 留出 3 秒钟给 TV 画布进行动态重绘动画
             await page.wait_for_timeout(3000)
             
-            # 最终裁切
             await page.screenshot(path=f"ss_etf_{i}.png", clip={'x': 0, 'y': 0, 'width': 720, 'height': 1280})
             
         await browser.close()
@@ -393,7 +368,6 @@ async def main():
     video_segments = []
     audio_segments = []
 
-    # 1. 封面
     active_intro = clean_for_tts(ai_script.get('video_intro', ''))
     await safe_generate_tts(active_intro, "audio_intro.mp3")
     dur_intro = get_audio_duration("audio_intro.mp3")
@@ -402,7 +376,6 @@ async def main():
     video_segments.append("seg_cover.mp4")
     audio_segments.append("audio_intro.mp3")
 
-    # 2. TV 图表
     ai_narratives = ai_script.get('etf_narratives', [])
     for i, etf in enumerate(etf_list):
         if i < len(ai_narratives):
@@ -422,7 +395,6 @@ async def main():
         create_zoom_video(f"ss_etf_{i}.png", video_name, dur_etf, zoom_type='tv', srt_file=srt_name)
         video_segments.append(video_name)
 
-    # 3. 独立引流海报 + 语音
     await safe_generate_tts(PRIVATE_HOOK, "seg_audio_hook.mp3")
     dur_hook = get_audio_duration("seg_audio_hook.mp3")
     create_srt(PRIVATE_HOOK, dur_hook, "sub_hook.srt")
@@ -430,7 +402,6 @@ async def main():
     create_static_video("hook.png", "seg_video_hook.mp4", dur_hook, srt_file="sub_hook.srt")
     video_segments.append("seg_video_hook.mp4")
 
-    # 4. 独立免责海报 + 语音
     await safe_generate_tts(OUTRO_TEXT, "seg_audio_outro.mp3")
     dur_outro = get_audio_duration("seg_audio_outro.mp3")
     create_srt(OUTRO_TEXT, dur_outro, "sub_outro.srt")
