@@ -388,7 +388,7 @@ async def main():
 
             # 🚀 左对齐 (top left)，整体放大1.2倍涵盖了横向110%的要求，同时让所有文字元素更清晰
             zoom_js = """
-            document.body.style.transform = 'scaleX(1.15) scaleY(1.2)';
+            document.body.style.transform = 'scaleX(1.15) scaleY(1.3)';
             document.body.style.transformOrigin = 'top left';
             """
             await page.evaluate(zoom_js)
