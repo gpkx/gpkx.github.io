@@ -290,6 +290,42 @@ async def main():
                         etf_list.append({"name": name, "code": code, "change": target_val})
             
             etf_list.sort(key=lambda x: abs(parse_pct_to_float(x['change'])), reverse=True)
+           # ==========================================
+            # 🚀 新增：同步完整异动数据到 Cloudflare 数据库
+            # ==========================================
+            if etf_list:
+                # 🛡️ 安全升级：改用环境变量读取，绝不在公开代码中写死！
+                cf_url = os.getenv("CF_WORKER_URL", "").strip()
+                cf_token = os.getenv("CF_API_TOKEN", "").strip()
+                
+                if not cf_url or not cf_token:
+                    print("⚠️ 未配置 CF_WORKER_URL 或 CF_API_TOKEN 环境变量，跳过数据库同步。")
+                else:
+                    # 转换数据格式以适配数据库表结构
+                    data_list = []
+                    for etf in etf_list:
+                        item = {
+                            "etf_code": etf["code"],
+                            "etf_name": etf["name"]
+                        }
+                        # 根据当前是周六还是工作日，判断写入哪个字段
+                        if IS_SATURDAY:
+                            item["week_status"] = etf["change"]
+                        else:
+                            item["day_status"] = etf["change"]
+                        data_list.append(item)
+                    
+                    # 发送鉴权请求
+                    cf_headers = {
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {cf_token}"
+                    }
+                    try:
+                        cf_response = requests.post(cf_url, json=data_list, headers=cf_headers, timeout=30)
+                        print(f"☁️ Cloudflare 同步结果: {cf_response.text}")
+                    except Exception as e:
+                        print(f"⚠️ 同步到 Cloudflare 失败: {e}")
+            # ==========================================
             etf_list = etf_list[:4]
         except Exception as e:
             print(f"提取数据发生异常: {e}")
