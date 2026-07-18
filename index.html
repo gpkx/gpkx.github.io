@@ -39,43 +39,6 @@
     <div class="watermark-overlay"></div>
 
     <div id="app" v-cloak>
-        
-        <!-- 移动端半透明遮罩层 -->
-        <div v-show="showTvChart && isMobile" 
-             class="fixed inset-0 bg-black/60 z-[9998] transition-opacity" 
-             @click="showTvChart = false">
-        </div>
-
-        <!-- TradingView 图表窗口 (PC端悬浮 / 移动端居中模态框) -->
-        <div v-show="showTvChart" 
-             class="fixed z-[9999] bg-white border border-gray-200 shadow-2xl rounded-xl overflow-hidden flex flex-col transition-opacity duration-200"
-             :style="popupStyle"
-             @mouseenter="cancelHideChart" 
-             @mouseleave="handleMouseLeave">
-            
-            <!-- 顶部拖拽/标题栏 -->
-            <div class="bg-slate-800 text-white text-[13px] px-3 py-2 flex justify-between items-center font-semibold">
-                <span>
-                    <i class="fa-solid fa-chart-line text-blue-400 mr-1.5"></i> 
-                    {{ currentHoverName }} ({{ currentHoverCode }})
-                </span>
-                <i class="fa-solid fa-xmark cursor-pointer text-gray-300 hover:text-red-400 p-1 text-lg" @click="showTvChart = false"></i>
-            </div>
-            
-            <!-- 图表容器 -->
-            <div class="flex-1 w-full bg-slate-50 relative">
-                <div v-if="loadingChart" class="absolute inset-0 flex flex-col items-center justify-center text-gray-400 gap-2">
-                    <i class="fa-solid fa-spinner animate-spin text-2xl"></i>
-                    <span class="text-xs">加载图表中...</span>
-                </div>
-                <iframe v-if="currentHoverCode" 
-                        :src="tvIframeSrc" 
-                        class="w-full h-full border-none absolute z-10" 
-                        @load="loadingChart = false">
-                </iframe>
-            </div>
-        </div>
-
         <header class="bg-slate-800 text-white shadow-md sticky top-0 z-50 h-[56px]">
             <div class="container mx-auto px-4 h-full flex justify-between items-center">
                 <h1 class="text-lg font-bold flex items-center gap-2">
@@ -92,6 +55,7 @@
             </div>
 
             <div v-else class="space-y-3">
+                
                 <div class="flex flex-row gap-2 relative z-40">
                     <div class="flex-1 bg-white rounded-xl shadow-sm border border-gray-100 relative min-w-0">
                         <button @click.stop="toggleDropdown" class="w-full flex items-center justify-between border-transparent rounded-xl px-3 py-2.5 text-sm font-semibold hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500">
@@ -118,7 +82,9 @@
                                         </div>
                                     </div>
                                 </template>
-                                <div v-else class="text-center text-sm text-gray-400 py-4">暂无任何历史数据</div>
+                                <div v-else class="text-center text-sm text-gray-400 py-4">
+                                    暂无任何历史数据
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -176,15 +142,8 @@
                             </thead>
                             <tbody class="divide-y divide-gray-100 text-[15px]">
                                 <template v-for="item in filteredWeekData" :key="item.etf_code">
-                                    <!-- 整行点击展开记录，移动端点击名字看图表，点击其他区域展开 -->
                                     <tr class="hover:bg-blue-50/40 transition-colors cursor-pointer" @click="toggleRow(item)">
-                                        
-                                        <!-- ETF名称列绑定图表事件 -->
-                                        <td class="p-2 md:p-3 font-bold text-gray-800 text-left sticky left-0 bg-white shadow-[1px_0_0_0_#f3f4f6] z-10 etf-name-column"
-                                            @mouseenter="handleMouseEnter($event, item)" 
-                                            @mouseleave="handleMouseLeave"
-                                            @click.stop="handleNameClick($event, item)">
-                                            
+                                        <td class="p-2 md:p-3 font-bold text-gray-800 text-left sticky left-0 bg-white shadow-[1px_0_0_0_#f3f4f6] z-10 etf-name-column">
                                             <div class="flex flex-col overflow-hidden">
                                                 <div :style="getEtfNameStyle(item)" class="flex items-center justify-between whitespace-nowrap overflow-hidden">
                                                     <span class="text-slate-900 font-bold hover:text-blue-600 transition-colors flex items-center shrink-0 w-full truncate">
@@ -195,8 +154,6 @@
                                                 </div>
                                                 <div class="flex items-center gap-2 mt-0.5">
                                                     <span class="text-xs text-gray-600 font-semibold font-mono">{{ item.etf_code }}</span>
-                                                    <!-- 手机端专属的小图标提示可以点击看图 -->
-                                                    <i v-if="isMobile" class="fa-solid fa-chart-line text-[10px] text-blue-400"></i>
                                                 </div>
                                             </div>
                                         </td>
@@ -227,7 +184,9 @@
                                             </td>
                                         </tr>
                                         <tr v-if="getPastWeeks(item.etf_code).length === 0" class="bg-slate-50/80" @click.stop>
-                                            <td colspan="7" class="p-4 text-center text-xs text-gray-400 italic">该月份暂无其他周数据的历史记录</td>
+                                            <td colspan="7" class="p-4 text-center text-xs text-gray-400 italic">
+                                                该月份暂无其他周数据的历史记录
+                                            </td>
                                         </tr>
                                     </template>
                                 </template>
@@ -250,131 +209,18 @@
 
         createApp({
             setup() {
-                // ==========================================
-                // ⚙️ TV 自定义指标/图表配置区
-                // ==========================================
-                // 在你的TV中保存布局并开启"分享"，获取网址中的随机码填在此处。
-                // 例如网址为 https://cn.tradingview.com/chart/abc123xyz/ ，则填入 'abc123xyz'
-                // 如果留空，则使用官方默认干净无指标的日线图表
-                const MY_TV_CHART_ID = 'fxUqvHrk'; 
-                // ==========================================
-
                 const loading = ref(true);
                 const allData = ref([]); 
                 const selectedMonday = ref('');
                 const expandedRowKey = ref(null); 
+
                 const searchQuery = ref('');
                 const showSearch = ref(false);
                 const searchInput = ref(null);
+
                 const showDropdown = ref(false);
                 const sortColumn = ref(null); 
                 const sortOrder = ref('desc'); 
-
-                // --- 响应式判断：是否为移动端 ---
-                const isMobile = ref(false);
-                const checkMobile = () => { isMobile.value = window.innerWidth < 768; };
-
-                // ==========================================
-                // TV 图表悬浮窗逻辑
-                // ==========================================
-                const showTvChart = ref(false);
-                const currentHoverCode = ref('');
-                const currentHoverName = ref('');
-                const loadingChart = ref(false);
-                const popoverX = ref(0);
-                const popoverY = ref(0);
-                let hideChartTimer = null;
-
-                // 计算悬浮窗的动态样式 (PC固定坐标 / 移动端居中全屏)
-                const popupStyle = computed(() => {
-                    if (isMobile.value) {
-                        return {
-                            top: '50%',
-                            left: '50%',
-                            transform: 'translate(-50%, -50%)',
-                            width: '90vw',
-                            height: '65vh',
-                            maxWidth: '500px'
-                        };
-                    } else {
-                        return {
-                            top: popoverY.value + 'px',
-                            left: popoverX.value + 'px',
-                            width: '560px',
-                            height: '380px'
-                        };
-                    }
-                });
-
-                const getTvTicker = (code) => {
-                    if (!code) return '';
-                    const cleanCode = code.toString().replace(/[^0-9]/g, '');
-                    if (cleanCode.startsWith('5')) return `SSE:${cleanCode}`;
-                    if (cleanCode.startsWith('1')) return `SZSE:${cleanCode}`;
-                    return `SSE:${cleanCode}`; 
-                };
-
-                const tvIframeSrc = computed(() => {
-                    if (!currentHoverCode.value) return '';
-                    const ticker = getTvTicker(currentHoverCode.value);
-                    // 默认配置
-                    let src = `https://s.tradingview.com/widgetembed/?symbol=${ticker}&interval=D&hidesidetoolbar=1&symboledit=0&saveimage=0&toolbarbg=F1F3F6&theme=light&style=1&timezone=Asia%2FShanghai&locale=zh_CN`;
-                    // 如果填写了自定义布局ID，追加参数
-                    if (MY_TV_CHART_ID) {
-                        src += `&chart=${MY_TV_CHART_ID}`;
-                    }
-                    return src;
-                });
-
-                const showChartPopup = (event, item) => {
-                    cancelHideChart();
-                    if (currentHoverCode.value !== item.etf_code) {
-                        loadingChart.value = true;
-                        currentHoverCode.value = item.etf_code;
-                        currentHoverName.value = item.etf_name;
-                    }
-                    showTvChart.value = true;
-                    
-                    if (!isMobile.value) {
-                        const popupWidth = 560;
-                        const popupHeight = 380;
-                        let x = event.clientX + 20; 
-                        let y = event.clientY - popupHeight / 2;
-                        
-                        if (x + popupWidth > window.innerWidth) x = event.clientX - popupWidth - 20;
-                        if (y < 10) y = 10;
-                        if (y + popupHeight > window.innerHeight) y = window.innerHeight - popupHeight - 10;
-                        
-                        popoverX.value = x;
-                        popoverY.value = y;
-                    }
-                };
-
-                const handleMouseEnter = (event, item) => {
-                    if (isMobile.value) return; // 移动端禁用 Hover
-                    showChartPopup(event, item);
-                };
-
-                const handleMouseLeave = () => {
-                    if (isMobile.value) return; 
-                    hideChartTimer = setTimeout(() => {
-                        showTvChart.value = false;
-                    }, 350); 
-                };
-
-                const handleNameClick = (event, item) => {
-                    if (isMobile.value) {
-                        showChartPopup(event, item); // 移动端点击打开图表
-                    } else {
-                        toggleRow(item); // PC端点击名字展开历史记录
-                    }
-                };
-
-                const cancelHideChart = () => {
-                    if (hideChartTimer) clearTimeout(hideChartTimer);
-                };
-                // ==========================================
-
 
                 const getWeekDays = (dateStr) => {
                     const parts = dateStr.split('-');
@@ -382,9 +228,11 @@
                     const m = parseInt(parts[1], 10) - 1;
                     const d = parseInt(parts[2], 10);
                     const dateObj = new Date(y, m, d);
+                    
                     let dayOfWeek = dateObj.getDay();
                     const offset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek; 
                     const monday = new Date(y, m, d + offset);
+                    
                     const days = [];
                     for (let i = 0; i < 5; i++) {
                         const temp = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i);
@@ -401,11 +249,14 @@
                     const y = parseInt(parts[0], 10);
                     const m = parseInt(parts[1], 10) - 1;
                     const d = parseInt(parts[2], 10);
+                    
                     const firstDay = new Date(y, m, 1);
                     let firstDayOfWeek = firstDay.getDay(); 
                     if (firstDayOfWeek === 0) firstDayOfWeek = 7;
+                    
                     const offset = firstDayOfWeek - 1; 
                     const weekNum = Math.ceil((d + offset) / 7);
+                    
                     const chineseNumbers = ['一', '二', '三', '四', '五', '六'];
                     return `第${chineseNumbers[weekNum - 1] || weekNum}周`;
                 };
@@ -431,13 +282,23 @@
                         const parts = monday.split('-');
                         const monthKey = `${parts[0]}-${parts[1]}`;
                         const monthLabel = `${parts[0]}年${parseInt(parts[1], 10)}月`;
-                        if (!periods[monthKey]) periods[monthKey] = { monthKey, monthLabel, weeksMap: {} };
+
+                        if (!periods[monthKey]) {
+                            periods[monthKey] = { monthKey, monthLabel, weeksMap: {} };
+                        }
+
                         if (!periods[monthKey].weeksMap[monday]) {
-                            periods[monthKey].weeksMap[monday] = { monday: monday, weekLabel: getWeekNumberInMonth(monday) };
+                            periods[monthKey].weeksMap[monday] = {
+                                monday: monday,
+                                weekLabel: getWeekNumberInMonth(monday)
+                            };
                         }
                     });
+
                     const result = Object.values(periods).sort((a, b) => b.monthKey.localeCompare(a.monthKey));
-                    result.forEach(m => { m.weeks = Object.values(m.weeksMap).sort((a, b) => b.monday.localeCompare(a.monday)); });
+                    result.forEach(m => {
+                        m.weeks = Object.values(m.weeksMap).sort((a, b) => b.monday.localeCompare(a.monday));
+                    });
                     return result;
                 });
 
@@ -445,14 +306,22 @@
                     if (!selectedMonday.value) return '';
                     for (const m of availablePeriods.value) {
                         for (const w of m.weeks) {
-                            if (w.monday === selectedMonday.value) return `${parseInt(m.monthKey.split('-')[1], 10)}月 · ${w.weekLabel}`;
+                            if (w.monday === selectedMonday.value) {
+                                return `${parseInt(m.monthKey.split('-')[1], 10)}月 · ${w.weekLabel}`;
+                            }
                         }
                     }
                     return '';
                 });
 
-                const toggleDropdown = (e) => { e.stopPropagation(); showDropdown.value = !showDropdown.value; };
-                const closeDropdown = () => { showDropdown.value = false; };
+                const toggleDropdown = (e) => {
+                    e.stopPropagation();
+                    showDropdown.value = !showDropdown.value;
+                };
+
+                const closeDropdown = () => {
+                    showDropdown.value = false;
+                };
                 
                 const openSearch = () => {
                     if (!showSearch.value) {
@@ -474,9 +343,16 @@
 
                 const handleSort = (column) => {
                     if (sortColumn.value === column) {
-                        if (sortOrder.value === 'desc') sortOrder.value = 'asc';
-                        else { sortColumn.value = null; sortOrder.value = 'desc'; }
-                    } else { sortColumn.value = column; sortOrder.value = 'desc'; }
+                        if (sortOrder.value === 'desc') {
+                            sortOrder.value = 'asc';
+                        } else {
+                            sortColumn.value = null; 
+                            sortOrder.value = 'desc';
+                        }
+                    } else {
+                        sortColumn.value = column;
+                        sortOrder.value = 'desc';
+                    }
                 };
 
                 const fetchData = async () => {
@@ -484,6 +360,7 @@
                         loading.value = true;
                         const sourceCode = 'aHR0cHM6Ly9ldGYuaGFoYWd3LmV1Lm9yZy8=';
                         const response = await fetch(atob(sourceCode));
+                        
                         if (response.ok) {
                             allData.value = await response.json();
                             if (availablePeriods.value.length > 0 && availablePeriods.value[0].weeks.length > 0) {
@@ -506,6 +383,7 @@
                 const filteredWeekData = computed(() => {
                     if (!selectedMonday.value) return [];
                     const weekDays = getWeekDays(selectedMonday.value); 
+                    
                     const etfMap = {};
                     
                     allData.value.forEach(item => {
@@ -513,11 +391,16 @@
                         if (idx !== -1) {
                             if (!etfMap[item.etf_code]) {
                                 etfMap[item.etf_code] = {
-                                    etf_code: item.etf_code, etf_name: item.etf_name,
-                                    days: [null, null, null, null, null], week_status: null
+                                    etf_code: item.etf_code,
+                                    etf_name: item.etf_name,
+                                    days: [null, null, null, null, null],
+                                    week_status: null
                                 };
                             }
                             etfMap[item.etf_code].days[idx] = item;
+                            
+                            // 🌟 核心修复：因为 allData 是最新的日期排在最前，
+                            // 所以遇到第一个有数据的 week_status，就立马锁死！确保不被这周里更旧的星期几的数据给覆盖回去。
                             if (!etfMap[item.etf_code].week_status && item.week_status && item.week_status !== '-' && item.week_status !== '--') {
                                 etfMap[item.etf_code].week_status = item.week_status;
                             }
@@ -532,7 +415,10 @@
                     
                     if (searchQuery.value) {
                         const q = searchQuery.value.toLowerCase().trim();
-                        validItems = validItems.filter(item => item.etf_name.toLowerCase().includes(q) || item.etf_code.toLowerCase().includes(q));
+                        validItems = validItems.filter(item => 
+                            item.etf_name.toLowerCase().includes(q) || 
+                            item.etf_code.toLowerCase().includes(q)
+                        );
                     }
 
                     validItems.sort((a, b) => {
@@ -544,6 +430,7 @@
                                 const idx = parseInt(sortColumn.value.substring(1), 10);
                                 const valA = a.days[idx] ? getStatusVal(a.days[idx].day_status) : -9999;
                                 const valB = b.days[idx] ? getStatusVal(b.days[idx].day_status) : -9999;
+                                
                                 if (valA === -9999 && valB !== -9999) return 1;
                                 if (valB === -9999 && valA !== -9999) return -1;
                                 return sortOrder.value === 'desc' ? valB - valA : valA - valB;
@@ -559,14 +446,20 @@
                             let latestValidDayIndex = 4;
                             while (latestValidDayIndex >= 0) {
                                 let hasAnyData = validItems.some(item => 
-                                    item.days[latestValidDayIndex] && item.days[latestValidDayIndex].day_status && 
-                                    item.days[latestValidDayIndex].day_status !== '-' && item.days[latestValidDayIndex].day_status !== '--'
+                                    item.days[latestValidDayIndex] && 
+                                    item.days[latestValidDayIndex].day_status && 
+                                    item.days[latestValidDayIndex].day_status !== '-' && 
+                                    item.days[latestValidDayIndex].day_status !== '--'
                                 );
                                 if (hasAnyData) break;
                                 latestValidDayIndex--;
                             }
                             
-                            if (latestValidDayIndex < 0) return Math.abs(getStatusVal(b.week_status)) - Math.abs(getStatusVal(a.week_status));
+                            if (latestValidDayIndex < 0) {
+                                const wkA = Math.abs(getStatusVal(a.week_status));
+                                const wkB = Math.abs(getStatusVal(b.week_status));
+                                return wkB - wkA;
+                            }
 
                             const getValAbs = (item, idx) => {
                                 const d = item.days[idx];
@@ -579,6 +472,7 @@
                             
                             const valA = getValAbs(a, latestValidDayIndex);
                             const valB = getValAbs(b, latestValidDayIndex);
+                            
                             if (valA > -9999 && valB > -9999) return valB - valA;
                             if (valA > -9999) return -1;
                             if (valB > -9999) return 1;
@@ -598,7 +492,10 @@
                             if (maxA > -9999 && maxB > -9999) return maxB - maxA;
                             if (maxA > -9999) return -1;
                             if (maxB > -9999) return 1;
-                            return Math.abs(getStatusVal(b.week_status)) - Math.abs(getStatusVal(a.week_status));
+                            
+                            const wkA = Math.abs(getStatusVal(a.week_status));
+                            const wkB = Math.abs(getStatusVal(b.week_status));
+                            return wkB - wkA;
                         }
                     });
                     
@@ -617,21 +514,36 @@
                 const getPastWeeks = (etf_code) => {
                     if (!selectedMonday.value) return [];
                     const currentMonth = selectedMonday.value.substring(0, 7);
-                    const pastData = allData.value.filter(item => item.etf_code === etf_code && item.date.startsWith(currentMonth) && (item.day_status || item.week_status));
+                    
+                    const pastData = allData.value.filter(item => 
+                        item.etf_code === etf_code && 
+                        item.date.startsWith(currentMonth) && 
+                        (item.day_status || item.week_status)
+                    );
+                    
                     const weekMap = {};
                     pastData.forEach(item => {
                         const wDays = getWeekDays(item.date);
                         const monday = wDays[0];
                         if (monday === selectedMonday.value) return; 
+
                         if (!weekMap[monday]) {
-                            weekMap[monday] = { monday: monday, weekLabel: getWeekNumberInMonth(monday), days: [null, null, null, null, null], week_status: null };
+                            weekMap[monday] = {
+                                monday: monday,
+                                weekLabel: getWeekNumberInMonth(monday),
+                                days: [null, null, null, null, null],
+                                week_status: null
+                            };
                         }
                         const idx = wDays.indexOf(item.date);
                         weekMap[monday].days[idx] = item;
+                        
+                        // 🌟 这里也同样加上核心修复锁，防止过去周次的数据被颠倒覆盖
                         if (!weekMap[monday].week_status && item.week_status && item.week_status !== '-' && item.week_status !== '--') {
                             weekMap[monday].week_status = item.week_status;
                         }
                     });
+                    
                     return Object.values(weekMap).sort((a, b) => b.monday.localeCompare(a.monday));
                 };
 
@@ -645,31 +557,36 @@
                     const targetWidth = 115; 
                     let fontSize = targetWidth / Math.max(visualLength, 1);
                     fontSize = Math.max(10, Math.min(16, fontSize));
+                    
                     return {
-                        fontSize: `${fontSize}px`, width: '100%', lineHeight: '1.2', display: 'flex',
-                        alignItems: 'center', justifyContent: 'space-between', whiteSpace: 'nowrap', overflow: 'hidden'
+                        fontSize: `${fontSize}px`,
+                        width: '100%',
+                        lineHeight: '1.2',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden'
                     };
                 };
 
                 onMounted(() => {
-                    checkMobile();
-                    window.addEventListener('resize', checkMobile);
                     fetchData();
                     window.addEventListener('click', closeDropdown);
                 });
 
                 onUnmounted(() => {
-                    window.removeEventListener('resize', checkMobile);
                     window.removeEventListener('click', closeDropdown);
                 });
 
                 return {
-                    loading, selectedMonday, filteredWeekData, getColorClass, expandedRowKey, toggleRow, getPastWeeks,
-                    showDropdown, toggleDropdown, closeDropdown, availablePeriods, currentPeriodLabel, selectWeek, currentWeekHeaders,
-                    getEtfNameStyle, searchQuery, showSearch, searchInput, toggleSearch, openSearch, sortColumn, sortOrder, handleSort,
-                    // TV相关
-                    isMobile, showTvChart, currentHoverName, currentHoverCode, loadingChart, popupStyle, tvIframeSrc,
-                    handleMouseEnter, handleMouseLeave, handleNameClick, cancelHideChart
+                    loading, selectedMonday, filteredWeekData, getColorClass,
+                    expandedRowKey, toggleRow, getPastWeeks,
+                    showDropdown, toggleDropdown, closeDropdown,
+                    availablePeriods, currentPeriodLabel, selectWeek, currentWeekHeaders,
+                    getEtfNameStyle,
+                    searchQuery, showSearch, searchInput, toggleSearch, openSearch,
+                    sortColumn, sortOrder, handleSort
                 };
             }
         }).mount('#app');
