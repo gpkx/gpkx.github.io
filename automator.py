@@ -58,9 +58,9 @@ def parse_pct_to_float(val_str):
 def format_quant_voice(val_str):
     try:
         val = float(val_str.replace('%', '').replace('+', ''))
-        if val > 0: return f"ATR 强势拉升了{abs(val)}%"
-        elif val < 0: return f"ATR 回撤了{abs(val)}%"
-        return "ATR 处于零轴震荡区"
+        if val > 0: return f"A T R 强势拉升了{abs(val)}%"
+        elif val < 0: return f"A T R 回撤了{abs(val)}%"
+        return "A T R 处于零轴震荡区"
     except:
         return "暂无有效读数"
 
@@ -84,8 +84,8 @@ def clean_for_tts(text):
     elif not isinstance(text, str): text = str(text)
     text = re.sub(r'[\U00010000-\U0010ffff]', '', text)
     text = text.replace('*', '').replace('_', '').replace('#', '').replace('`', '')
-    text = re.sub(r'(?i)\betf\b', ' ETF ', text)
-    text = re.sub(r'(?i)\batr\b', ' ATR ', text)
+    text = re.sub(r'(?i)\betf\b', ' E T F ', text)
+    text = re.sub(r'(?i)\batr\b', ' A T R ', text)
     text = re.sub(r'(?i)\ba股\b', ' A 股 ', text)
     return text.strip()
 
@@ -98,7 +98,7 @@ def create_srt(text, duration, filename):
     
     start_time = "00:00:00,000"
     end_time = format_time(duration)
-    clean_text = text.replace(' ETF ', 'ETF').replace(' ATR ', 'ATR')
+    clean_text = text.replace(' E T F ', 'ETF').replace(' A T R ', 'ATR')
     lines = [clean_text[i:i+50] for i in range(0, len(clean_text), 50)]
     
     srt_content = f"1\n{start_time} --> {end_time}\n" + "\n".join(lines) + "\n"
@@ -149,7 +149,7 @@ def create_static_video(img_path, output_video, duration, fps=30, srt_file=None)
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 # ==========================================
-# 2. AI 中枢逻辑保持不变
+# 2. AI 中枢逻辑
 # ==========================================
 def call_ai_director(etf_list, time_label, report_type):
     api_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
@@ -187,7 +187,7 @@ def call_ai_director(etf_list, time_label, report_type):
         🚨 【最高指令】客观真实，只基于上方数据解读，不说假话！
 
         【输出要求】严格返回JSON，包含：
-        - "video_intro": 短视频开场口播（20-30字，打招呼+抛出结论）。英文写 ETF。
+        - "video_intro": 短视频开场口播（20-30字，打招呼+抛出结论）。英文写 E T F。
         - "etf_narratives": 【数组】包含{len(etf_list)}句短评，严格对应传入的ETF！口语化解说。
         - "xhs_title": 小红书爆款标题。
         - "xhs_article": 小红书正文（排版好看，文风活泼，重点突出，文末引导关注）。
@@ -217,9 +217,43 @@ def call_ai_director(etf_list, time_label, report_type):
             time.sleep(3)
     sys.exit(1)
 
+# ==========================================
+# 3. 完整恢复的 TG 发送函数
+# ==========================================
 def send_telegram(text, video_path=None, photos=None):
-    # 此处为之前版本提供的TG发送逻辑，保持原样即可
-    pass
+    bot_token = os.getenv('TELEGRAM_BOT_TOKEN', '').strip()
+    chat_id = os.getenv('TELEGRAM_CHAT_ID', '').strip()
+    if not bot_token or not chat_id:
+        print("⚠️ 警告：未检测到 Telegram Bot Token 或 Chat ID。跳过推送。")
+        return
+        
+    tg_host = "[https://api.telegram.org/bot](https://api.telegram.org/bot)"
+    
+    try:
+        # 1. 发送长文本文章
+        requests.post(f"{tg_host}{bot_token}/sendMessage", data={'chat_id': chat_id, 'text': text}).raise_for_status()
+        
+        # 2. 发送视频
+        if video_path and os.path.exists(video_path):
+            with open(video_path, 'rb') as vf:
+                requests.post(f"{tg_host}{bot_token}/sendVideo", data={'chat_id': chat_id}, files={'video': vf}, timeout=120).raise_for_status()
+
+        # 3. 发送图片集
+        if photos:
+            for i in range(0, len(photos), 10):
+                chunk, media_group, files = photos[i:i+10], [], {}
+                for idx, img in enumerate(chunk):
+                    if os.path.exists(img):
+                        files[f"f{idx}"] = open(img, "rb")
+                        media_group.append({"type": "photo", "media": f"attach://f{idx}"})
+                if media_group:
+                    requests.post(f"{tg_host}{bot_token}/sendMediaGroup", data={'chat_id': chat_id, 'media': json.dumps(media_group)}, files=files, timeout=60).raise_for_status()
+                for f in files.values(): f.close()
+                
+        print("✈️ Telegram 消息推送成功！")
+    except Exception as e:
+        print(f"🛑 推送至 Telegram 失败: {e}")
+        sys.exit(1)
 
 async def main():
     print(f"🚀 启动量化自媒体引擎 | 当前模式: {REPORT_TYPE} | {NOW}")
@@ -235,11 +269,10 @@ async def main():
             await page.goto(TARGET_URL, wait_until="domcontentloaded")
             await page.wait_for_timeout(3000)
             
-            # 核心改进：直接在浏览器环境解析标准的表格结构，避免正则的脆弱性
             row_data = await page.evaluate('''() => {
                 return Array.from(document.querySelectorAll('tr, .el-table__row')).map(tr => {
                     return Array.from(tr.querySelectorAll('td, th')).map(td => td.innerText.trim());
-                }).filter(row => row.length >= 7); // 确保是包含周一到周线完整列的有效行
+                }).filter(row => row.length >= 7); 
             }''')
 
             for row in row_data:
@@ -248,36 +281,37 @@ async def main():
                 
                 if code_match:
                     code = code_match.group(1)
-                    # 剥离数字代码，留下纯ETF名称
                     name = re.sub(r'\d+', '', name_cell).strip()
-                    
-                    # 核心改进：针对周六(周线)取最后一列，针对工作日取当天对应的列
                     target_val = row[TARGET_COL_IDX]
                     
                     if '%' in target_val:
                         etf_list.append({"name": name, "code": code, "change": target_val})
             
-            # 核心改进：按“异动绝对值”从大到小排序，确保大跌大涨都抓取到
             etf_list.sort(key=lambda x: abs(parse_pct_to_float(x['change'])), reverse=True)
             etf_list = etf_list[:4]
             
         except Exception as e:
             print(f"提取数据发生异常: {e}")
 
+        # 如果没有数据，推送通报文章并退出
         if not etf_list:
             print("⚠️ 目标时段无有效信号，生成通报...")
             ai_script = call_ai_director([], TIME_LABEL, REPORT_TYPE)
+            tg_msg = f"📝 【小红书版】\n💡 {ai_script.get('xhs_title', '')}\n\n{ai_script.get('xhs_article', '')}\n\n====================\n\n📝 【微信公众号版】\n💡 {ai_script.get('gzh_title', '')}\n\n{ai_script.get('gzh_article', '')}"
+            send_telegram(tg_msg)
+            await browser.close()
+            print("✅ 通报任务完成，完美退出。")
             sys.exit(0)
 
-        print("🎭 正在生成剧本与排版...")
+        # ======================= 下方为有数据时的渲染流程 =======================
+        print("🎭 正在调度 AI 专家生成双端文章与视频剧本...")
         ai_script = call_ai_director(etf_list, TIME_LABEL, REPORT_TYPE)
         
-        # 渲染封面
+        print("🎨 正在渲染 封面、钩子及免责声明海报...")
         await page.set_content(ai_script.get('cover_html', '<html></html>'))
         await page.wait_for_timeout(2000) 
         await page.screenshot(path="cover_image.png")
 
-        # 福利海报保持合规优化版
         hook_html = """
         <!DOCTYPE html><html><head><meta charset="UTF-8"><style>
             body { background: linear-gradient(135deg, #f8fafc, #e2e8f0); display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: 'Microsoft YaHei'; height: 100vh; margin: 0; text-align: center; }
@@ -295,6 +329,23 @@ async def main():
         await page.set_content(hook_html)
         await page.wait_for_timeout(1000)
         await page.screenshot(path="hook.png")
+
+        # 补回原有的免责声明页面渲染
+        disclaimer_html = """
+        <!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+            body { background: #f8fafc; display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: 'Microsoft YaHei'; height: 100vh; margin: 0; padding: 0 40px; text-align: center; border: 20px solid #f1f5f9; box-sizing: border-box; }
+            h1 { color: #0f172a; font-size: 60px; margin-bottom: 50px; font-weight: bold; letter-spacing: 5px; }
+            p { font-size: 32px; line-height: 2; color: #475569; }
+            .footer { margin-top: 60px; font-size: 24px; color: #94a3b8; border-top: 2px solid #e2e8f0; padding-top: 30px; width: 80%; }
+        </style></head><body>
+            <h1>免责声明</h1>
+            <p>本视频内所有数据、图表及指标读数<br>均基于量化模型客观记录生成<br><br>不代表标的真实涨跌幅<br>亦不构成任何投资建议</p>
+            <div class="footer">市场有风险 · 投资需谨慎</div>
+        </body></html>
+        """
+        await page.set_content(disclaimer_html)
+        await page.wait_for_timeout(1000)
+        await page.screenshot(path="disclaimer.png")
 
         print("🌐 正在抓取 TV 原生图表 (应用115%放大对齐裁切)...")
         clean_css = ".layout__area--top, .layout__area--left, .layout__area--right, .layout__area--bottom { display: none !important; } .layout__area--center { position: fixed !important; top: 0 !important; left: 0 !important; width: 100vw !important; height: 100vh !important; z-index: 9999 !important; }"
@@ -315,8 +366,77 @@ async def main():
             
         await browser.close()
 
-    print("✅ 数据与影像渲染完毕！进入最终音视频合成流...")
-    # 保持原有的 FFmpeg 视频合成及 TG 推送模块即可
+    print("🎵 正在生成字幕、合成配音与物理运镜序列...")
+    video_segments = []
+    audio_segments = []
+
+    # 1. 封面
+    active_intro = clean_for_tts(ai_script.get('video_intro', ''))
+    await safe_generate_tts(active_intro, "audio_intro.mp3")
+    dur_intro = get_audio_duration("audio_intro.mp3")
+    create_srt(active_intro, dur_intro, "sub_intro.srt")
+    create_static_video("cover_image.png", "seg_cover.mp4", dur_intro, srt_file="sub_intro.srt")
+    video_segments.append("seg_cover.mp4")
+    audio_segments.append("audio_intro.mp3")
+
+    # 2. TV 图表
+    ai_narratives = ai_script.get('etf_narratives', [])
+    for i, etf in enumerate(etf_list):
+        if i < len(ai_narratives):
+            etf_text = clean_for_tts(ai_narratives[i])
+        else:
+            etf_text = f"最后看{etf['name']}的客观走势，{format_quant_voice(etf['change'])}。"
+            
+        audio_name = f"seg_audio_etf_{i}.mp3"
+        await safe_generate_tts(etf_text, audio_name)
+        dur_etf = get_audio_duration(audio_name)
+        audio_segments.append(audio_name)
+        
+        srt_name = f"sub_etf_{i}.srt"
+        create_srt(etf_text, dur_etf, srt_name)
+        
+        video_name = f"seg_video_etf_{i}.mp4"
+        create_zoom_video(f"ss_etf_{i}.png", video_name, dur_etf, zoom_type='tv', srt_file=srt_name)
+        video_segments.append(video_name)
+
+    # 3. 独立引流海报 + 语音
+    await safe_generate_tts(PRIVATE_HOOK, "seg_audio_hook.mp3")
+    dur_hook = get_audio_duration("seg_audio_hook.mp3")
+    create_srt(PRIVATE_HOOK, dur_hook, "sub_hook.srt")
+    audio_segments.append("seg_audio_hook.mp3")
+    create_static_video("hook.png", "seg_video_hook.mp4", dur_hook, srt_file="sub_hook.srt")
+    video_segments.append("seg_video_hook.mp4")
+
+    # 4. 独立免责海报 + 语音
+    await safe_generate_tts(OUTRO_TEXT, "seg_audio_outro.mp3")
+    dur_outro = get_audio_duration("seg_audio_outro.mp3")
+    create_srt(OUTRO_TEXT, dur_outro, "sub_outro.srt")
+    audio_segments.append("seg_audio_outro.mp3")
+    create_static_video("disclaimer.png", "seg_video_outro.mp4", dur_outro, srt_file="sub_outro.srt")
+    video_segments.append("seg_video_outro.mp4")
+
+    print("🎬 正在无缝拼装带字幕的竖屏音视频序列...")
+    with open("list_v.txt", "w") as f: f.writelines([f"file '{v}'\n" for v in video_segments])
+    with open("list_a.txt", "w") as f: f.writelines([f"file '{a}'\n" for a in audio_segments])
+    
+    subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "list_v.txt", "-c:v", "copy", "temp_v.mp4"], check=True)
+    subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "list_a.txt", "-c:a", "copy", "temp_a.mp3"], check=True)
+
+    final_video = f"etf_report_{FILE_SUFFIX}.mp4"
+    if os.path.exists("bgm.mp3"):
+        subprocess.run(["ffmpeg", "-y", "-i", "temp_v.mp4", "-i", "temp_a.mp3", "-stream_loop", "-1", "-i", "bgm.mp3", "-filter_complex", "[1:a]volume=1.0[a1];[2:a]volume=0.15[a2];[a1][a2]amix=inputs=2:duration=first:dropout_transition=2[a]", "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", final_video], check=True)
+    else:
+        subprocess.run(["ffmpeg", "-y", "-i", "temp_v.mp4", "-i", "temp_a.mp3", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", final_video], check=True)
+        
+    for tmp in ["temp_v.mp4", "temp_a.mp3"] + video_segments:
+        if os.path.exists(tmp): os.remove(tmp)
+        
+    print("✈️ 正在推送到 Telegram 接收端...")
+    tg_msg = f"📝 【小红书版】\n💡 {ai_script.get('xhs_title', '')}\n\n{ai_script.get('xhs_article', '')}\n\n====================\n\n📝 【微信公众号版】\n💡 {ai_script.get('gzh_title', '')}\n\n{ai_script.get('gzh_article', '')}\n\n--- 🎬 视频文案备份 ---\n{ai_script.get('video_intro', '')}"
+    
+    img_list = ["cover_image.png", "hook.png", "disclaimer.png"] + [f"ss_etf_{i}.png" for i in range(len(etf_list))]
+    send_telegram(tg_msg, video_path=final_video, photos=img_list)
+    print("✅ 全部工作流执行完毕！")
 
 if __name__ == "__main__":
     asyncio.run(main())
