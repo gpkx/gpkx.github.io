@@ -1,12 +1,7 @@
 name: ETF monitor Workflow
 
 on:
-  schedule:
-    # 1. 交易日（周一至周五）北京时间 15:45 (UTC 07:45) -> 运行日线数据
-    - cron: '45 7 * * 1-5'
-    # 2. 周六 北京时间 09:00 (UTC 01:00) -> 运行周线数据
-    - cron: '0 1 * * 6'
-  workflow_dispatch: # 允许手动点击运行，方便测试
+  workflow_dispatch: # 唯一保留的触发器：允许通过 API 或网页手动触发
 
 jobs:
   build-and-run:
