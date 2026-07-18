@@ -347,21 +347,44 @@ async def main():
         await page.wait_for_timeout(1000)
         await page.screenshot(path="disclaimer.png")
 
-        print("🌐 正在抓取 TV 原生图表 (应用115%放大对齐裁切)...")
+        print("🌐 正在抓取 TV 原生图表 (应用自动化视窗重置与裁切)...")
         clean_css = ".layout__area--top, .layout__area--left, .layout__area--right, .layout__area--bottom { display: none !important; } .layout__area--center { position: fixed !important; top: 0 !important; left: 0 !important; width: 100vw !important; height: 100vh !important; z-index: 9999 !important; }"
         
         for i, etf in enumerate(etf_list):
             symbol = get_tv_symbol(etf['code'])
-            await page.goto(f"{TV_CHART_URL.rstrip('/')}/?symbol={symbol}&interval={TV_INTERVAL}", wait_until="domcontentloaded")
+            
+            # 兼容 TV 的周线参数 (TV中周线通常用 W，日线用 D 或 1D)
+            tv_int = "W" if TV_INTERVAL == "1W" else TV_INTERVAL
+            await page.goto(f"{TV_CHART_URL.rstrip('/')}/?symbol={symbol}&interval={tv_int}", wait_until="domcontentloaded")
+            
+            # 1. 充分等待图表底层 Canvas 画布加载完毕
+            await page.wait_for_timeout(5000)
+            
+            # 🚀 核心修复 1：模拟按下 Alt + R (重置图表，自动修正因分辨率突变导致的K线畸变)
+            await page.keyboard.press("Alt+r")
+            await page.wait_for_timeout(1000)
+            
+            # 🚀 核心修复 2：模拟按下 Shift + 向右方向键 (强制时间轴死死贴住最右侧的最新K线)
+            await page.keyboard.press("Shift+ArrowRight")
+            await page.wait_for_timeout(1000)
+
+            # 2. 注入纯净版 CSS 抹除所有边框UI
             await page.add_style_tag(content=clean_css)
             
+            # 3. 放大 115% 
             zoom_js = """
             document.body.style.transform = 'scale(1.15)';
             document.body.style.transformOrigin = 'top left';
             """
             await page.evaluate(zoom_js)
-            await page.wait_for_timeout(4000)
             
+            # 🚀 核心修复 3：强行派发一个 resize 窗口变化事件，逼迫 TV 画布重新渲染填满白边
+            await page.evaluate("window.dispatchEvent(new Event('resize'));")
+            
+            # 留出 3 秒钟给 TV 画布进行动态重绘动画
+            await page.wait_for_timeout(3000)
+            
+            # 最终裁切
             await page.screenshot(path=f"ss_etf_{i}.png", clip={'x': 0, 'y': 0, 'width': 720, 'height': 1280})
             
         await browser.close()
