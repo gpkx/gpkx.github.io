@@ -3,64 +3,48 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ETF涨跌幅实时监控</title>
+    <title>ETF异动监控系统</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <style>
         [v-cloak] { display: none; }
         
-        /* 🌟 保持固定 ETF 名称列宽度 */
         .etf-name-column {
             width: 130px;
             min-width: 130px;
             max-width: 130px;
         }
 
-        /* 全局超淡水印层 */
         .watermark-overlay {
             position: fixed;
             top: 0;
             left: 0;
             width: 100vw;
             height: 100vh;
-            pointer-events: none; /* 确保不影响任何点击交互 */
+            pointer-events: none;
             z-index: 9999;
-            /* SVG 水印：透明度为0.03，倾斜15度 */
             background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="350" height="250" opacity="0.03" transform="rotate(-15)"><text x="30" y="120" font-family="sans-serif" font-weight="bold" font-size="18" fill="%23000">手机/微信:18507078300</text></svg>');
             background-repeat: repeat;
         }
         
-        /* 优化滚动条样式 */
-        .custom-scrollbar::-webkit-scrollbar {
-            width: 6px;
-            height: 6px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-track {
-            background: #f1f5f9; 
-            border-radius: 4px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-            background: #cbd5e1; 
-            border-radius: 4px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-            background: #94a3b8; 
-        }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
     </style>
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans relative">
     
-    <!-- 水印层 -->
     <div class="watermark-overlay"></div>
 
     <div id="app" v-cloak>
         <header class="bg-slate-800 text-white shadow-md sticky top-0 z-50 h-[56px]">
             <div class="container mx-auto px-4 h-full flex justify-between items-center">
                 <h1 class="text-lg font-bold flex items-center gap-2">
-                    <i class="fa-solid fa-chart-line text-emerald-400"></i> ETF涨跌幅实时监控
+                    <i class="fa-solid fa-chart-line text-emerald-400"></i> ETF异动监控系统
                 </h1>
-                <span class="text-xs bg-emerald-600 px-2 py-1 rounded font-mono animate-pulse">● LIVE同步中</span>
+                <span class="text-xs bg-emerald-600 px-2 py-1 rounded font-mono animate-pulse">📱 18507078300</span>
             </div>
         </header>
 
@@ -72,54 +56,39 @@
 
             <div v-else class="space-y-3">
                 
-                <!-- 顶部控制区：下拉筛选器 + 搜索功能 -->
                 <div class="flex flex-row gap-2 relative z-40">
-                    
                     <div class="flex-1 bg-white rounded-xl shadow-sm border border-gray-100 relative min-w-0">
                         <button @click.stop="toggleDropdown" class="w-full flex items-center justify-between border-transparent rounded-xl px-3 py-2.5 text-sm font-semibold hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500">
-                            <!-- 🌟 调整：只显示确定的日期，彻底去除 200 条的概念 -->
                             <span class="flex items-center gap-1.5 truncate">
-                                <span class="truncate">📅 交易日：{{ selectedDate || '数据加载中...' }}</span>
+                                <span class="truncate">📅 历史周期：{{ currentPeriodLabel || '数据加载中...' }}</span>
                             </span>
                             <i class="fa-solid fa-chevron-down text-gray-400 transition-transform duration-200 ml-1 shrink-0" :class="{'rotate-180': showDropdown}"></i>
                         </button>
 
-                        <!-- 下拉弹窗面板 -->
                         <div v-if="showDropdown" @click.stop class="absolute left-0 mt-2 bg-white border border-gray-200 rounded-xl shadow-xl z-50 p-4 w-[90vw] max-w-sm sm:w-80">
-                            <div class="mb-2">
-                                <div class="flex items-center justify-between mb-3">
-                                    <button @click="prevMonth" :disabled="isPrevMonthDisabled" class="p-1 px-2 text-gray-600 hover:bg-gray-100 rounded disabled:opacity-20 disabled:hover:bg-transparent">
-                                        <i class="fa-solid fa-chevron-left text-xs"></i>
-                                    </button>
-                                    <span class="text-sm font-bold text-slate-700 font-mono">{{ currentYear }}年{{ currentMonth + 1 }}月</span>
-                                    <button @click="nextMonth" :disabled="isNextMonthDisabled" class="p-1 px-2 text-gray-600 hover:bg-gray-100 rounded disabled:opacity-20 disabled:hover:bg-transparent">
-                                        <i class="fa-solid fa-chevron-right text-xs"></i>
-                                    </button>
-                                </div>
-                                <div class="grid grid-cols-7 gap-1 text-center text-xs font-bold text-gray-400 mb-1">
-                                    <div>日</div><div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div>六</div>
-                                </div>
-                                <div class="grid grid-cols-7 gap-1 text-center">
-                                    <div v-for="blank in calendarBlanks" :key="'b-'+blank"></div>
-                                    <div v-for="day in calendarDays" :key="'d-'+day.dateStr">
-                                        <div v-if="day.isBeforeStart" class="h-8"></div>
-                                        <button v-else
-                                            @click="day.hasData && selectDate(day.dateStr)"
-                                            :disabled="!day.hasData"
-                                            class="w-full h-8 text-xs font-semibold rounded-lg flex items-center justify-center font-mono transition-all"
-                                            :class="[
-                                                day.hasData ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-500 hover:text-white font-bold cursor-pointer' : 'text-gray-300 bg-transparent cursor-not-allowed',
-                                                selectedDate === day.dateStr ? '!bg-blue-600 !text-white ring-2 ring-blue-300 font-bold' : ''
-                                            ]">
-                                            {{ day.dayNum }}
-                                        </button>
+                            <div class="max-h-[60vh] overflow-y-auto custom-scrollbar pr-1">
+                                <template v-if="availablePeriods.length > 0">
+                                    <div v-for="month in availablePeriods" :key="month.monthKey" class="mb-4 last:mb-0">
+                                        <div class="text-[13px] font-bold text-slate-400 mb-2 border-b border-gray-100 pb-1 flex items-center gap-1.5">
+                                            <i class="fa-regular fa-calendar text-blue-400"></i> {{ month.monthLabel }}
+                                        </div>
+                                        <div class="flex flex-wrap gap-2">
+                                            <button v-for="week in month.weeks" :key="week.monday"
+                                                @click="selectWeek(week.monday)"
+                                                class="px-2.5 py-1.5 text-xs rounded-lg transition-all border font-semibold"
+                                                :class="selectedMonday === week.monday ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-slate-50 text-slate-600 border-gray-200 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600'">
+                                                {{ week.weekLabel }}
+                                            </button>
+                                        </div>
                                     </div>
+                                </template>
+                                <div v-else class="text-center text-sm text-gray-400 py-4">
+                                    暂无任何历史数据
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- 动态搜索框 -->
                     <div class="bg-white rounded-xl shadow-sm border border-gray-100 flex items-center transition-all duration-300 shrink-0" :class="showSearch ? 'w-[55%] sm:w-64' : 'w-auto cursor-pointer hover:bg-gray-50'" @click="openSearch">
                         <i class="fa-solid fa-magnifying-glass text-gray-500 px-3 py-3 cursor-pointer hover:text-blue-500" @click.stop="toggleSearch"></i>
                         <input 
@@ -135,13 +104,12 @@
                     </div>
                 </div>
 
-                <!-- 监控看板表格区 -->
                 <div class="bg-white rounded-xl shadow-sm border border-gray-200 relative">
                     <div class="w-full custom-scrollbar overflow-x-auto md:overflow-visible">
                         <table class="w-full text-center border-collapse whitespace-nowrap min-w-max">
                             <thead class="sticky top-0 md:top-[56px] bg-slate-100 shadow-sm z-30">
-                                <tr class="text-sm font-bold text-slate-700 select-none">
-                                    <th class="py-2.5 px-2 md:px-3 text-center sticky left-0 bg-slate-100 z-40 shadow-[1px_0_0_0_#e2e8f0] etf-name-column cursor-pointer hover:bg-slate-200 transition-colors" @click="handleSort('etf_name')">
+                                <tr class="text-[13px] font-bold text-slate-700 select-none">
+                                    <th class="py-2.5 px-1 md:px-2 text-center sticky left-0 bg-slate-100 z-40 shadow-[1px_0_0_0_#e2e8f0] etf-name-column cursor-pointer hover:bg-slate-200 transition-colors" @click="handleSort('etf_name')">
                                         <div class="flex items-center justify-center gap-1">
                                             ETF名称
                                             <div class="flex flex-col text-[9px] leading-[8px] text-gray-300">
@@ -151,34 +119,17 @@
                                         </div>
                                     </th>
                                     
-                                    <th class="py-2.5 px-2 md:px-3 cursor-pointer hover:bg-slate-200 transition-colors" @click="handleSort('am_status')">
+                                    <th v-for="(dayNum, idx) in currentWeekHeaders" :key="'th-'+idx" class="py-2.5 px-1 md:px-2 cursor-pointer hover:bg-slate-200 transition-colors" @click="handleSort('d'+idx)">
                                         <div class="flex items-center justify-center gap-1">
-                                            上午
+                                            周{{ ['一','二','三','四','五'][idx] }}({{ dayNum }}日)
                                             <div class="flex flex-col text-[9px] leading-[8px] text-gray-300">
-                                                <i class="fa-solid fa-caret-up" :class="{'text-blue-600': sortColumn === 'am_status' && sortOrder === 'asc'}"></i>
-                                                <i class="fa-solid fa-caret-down" :class="{'text-blue-600': sortColumn === 'am_status' && sortOrder === 'desc'}"></i>
+                                                <i class="fa-solid fa-caret-up" :class="{'text-blue-600': sortColumn === 'd'+idx && sortOrder === 'asc'}"></i>
+                                                <i class="fa-solid fa-caret-down" :class="{'text-blue-600': sortColumn === 'd'+idx && sortOrder === 'desc'}"></i>
                                             </div>
                                         </div>
                                     </th>
-                                    <th class="py-2.5 px-2 md:px-3 cursor-pointer hover:bg-slate-200 transition-colors" @click="handleSort('pm_status')">
-                                        <div class="flex items-center justify-center gap-1">
-                                            下午
-                                            <div class="flex flex-col text-[9px] leading-[8px] text-gray-300">
-                                                <i class="fa-solid fa-caret-up" :class="{'text-blue-600': sortColumn === 'pm_status' && sortOrder === 'asc'}"></i>
-                                                <i class="fa-solid fa-caret-down" :class="{'text-blue-600': sortColumn === 'pm_status' && sortOrder === 'desc'}"></i>
-                                            </div>
-                                        </div>
-                                    </th>
-                                    <th class="py-2.5 px-2 md:px-3 cursor-pointer hover:bg-slate-200 transition-colors" @click="handleSort('day_status')">
-                                        <div class="flex items-center justify-center gap-1">
-                                            日线
-                                            <div class="flex flex-col text-[9px] leading-[8px] text-gray-300">
-                                                <i class="fa-solid fa-caret-up" :class="{'text-blue-600': sortColumn === 'day_status' && sortOrder === 'asc'}"></i>
-                                                <i class="fa-solid fa-caret-down" :class="{'text-blue-600': sortColumn === 'day_status' && sortOrder === 'desc'}"></i>
-                                            </div>
-                                        </div>
-                                    </th>
-                                    <th class="py-2.5 px-2 md:px-3 cursor-pointer hover:bg-slate-200 transition-colors" @click="handleSort('week_status')">
+
+                                    <th class="py-2.5 px-1 md:px-2 cursor-pointer hover:bg-slate-200 transition-colors" @click="handleSort('week_status')">
                                         <div class="flex items-center justify-center gap-1">
                                             周线
                                             <div class="flex flex-col text-[9px] leading-[8px] text-gray-300">
@@ -190,58 +141,57 @@
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-gray-100 text-[15px]">
-                                <template v-for="item in filteredDateData" :key="item.etf_code + '_' + item.date">
+                                <template v-for="item in filteredWeekData" :key="item.etf_code">
                                     <tr class="hover:bg-blue-50/40 transition-colors cursor-pointer" @click="toggleRow(item)">
                                         <td class="p-2 md:p-3 font-bold text-gray-800 text-left sticky left-0 bg-white shadow-[1px_0_0_0_#f3f4f6] z-10 etf-name-column">
                                             <div class="flex flex-col overflow-hidden">
-                                                <!-- 删除计数并让名称样式占满行 -->
                                                 <div :style="getEtfNameStyle(item)" class="flex items-center justify-between whitespace-nowrap overflow-hidden">
                                                     <span class="text-slate-900 font-bold hover:text-blue-600 transition-colors flex items-center shrink-0 w-full truncate">
                                                         {{ item.etf_name }}
                                                     </span>
                                                     <i class="fa-solid text-[0.8em] ml-1 text-gray-400 transition-transform duration-200 shrink-0" 
-                                                       :class="expandedRowKey === item.etf_code + '_' + item.date ? 'fa-chevron-down rotate-180 text-blue-500' : 'fa-chevron-right'"></i>
+                                                       :class="expandedRowKey === item.etf_code ? 'fa-chevron-down rotate-180 text-blue-500' : 'fa-chevron-right'"></i>
                                                 </div>
                                                 <div class="flex items-center gap-2 mt-0.5">
-                                                    <!-- 去除了多余的日期标签显示，因为现在页面全局都是同一天的数据 -->
                                                     <span class="text-xs text-gray-600 font-semibold font-mono">{{ item.etf_code }}</span>
                                                 </div>
                                             </div>
                                         </td>
-                                        <td class="p-2 md:p-3 font-semibold" :class="getColorClass(item.am_status)">{{ item.am_status || '-' }}</td>
-                                        <td class="p-2 md:p-3 font-semibold" :class="getColorClass(item.pm_status)">{{ item.pm_status || '-' }}</td>
-                                        <td class="p-2 md:p-3 font-semibold" :class="getColorClass(item.day_status)">{{ item.day_status || '-' }}</td>
-                                        <td class="p-2 md:p-3 font-semibold" :class="getColorClass(item.week_status)">{{ item.week_status || '-' }}</td>
-                                    </tr>
-                                    
-                                    <tr v-if="expandedRowKey === item.etf_code + '_' + item.date" class="bg-slate-50/60" @click.stop>
-                                        <td colspan="5" class="p-3 text-left border-t border-b border-gray-100">
-                                            <div class="bg-white p-3 rounded-xl border border-slate-100 shadow-inner max-w-3xl">
-                                                <div class="text-xs font-bold text-slate-400 mb-2 flex items-center gap-1.5 uppercase tracking-wider">
-                                                    <i class="fa-solid fa-clock-rotate-left text-blue-500"></i> {{ item.etf_name }} · 当月其他历史记录 (由新到旧)
-                                                </div>
-                                                <div class="space-y-2">
-                                                    <template v-if="getMonthlyDetails(item.etf_code, item.date).length > 0">
-                                                        <div v-for="detail in getMonthlyDetails(item.etf_code, item.date)" :key="detail.date" class="flex items-center text-sm border-b border-dashed border-gray-50 pb-1.5 last:border-0 last:pb-0">
-                                                            <span class="w-18 font-medium text-slate-500 shrink-0">{{ formatChineseDate(detail.date) }}：</span>
-                                                            <div class="flex items-center gap-1 flex-wrap">
-                                                                <template v-for="(part, pIdx) in getDetailParts(detail)" :key="pIdx">
-                                                                    <span v-if="pIdx > 0" class="text-gray-200 mx-1">|</span>
-                                                                    <span :class="part.cls" class="font-semibold font-mono text-[13px] px-1.5 py-0.5 rounded">{{ part.text }}</span>
-                                                                </template>
-                                                            </div>
-                                                        </div>
-                                                    </template>
-                                                    <template v-else>
-                                                        <div class="text-xs text-gray-400 italic py-1">暂无当月其他历史触发记录</div>
-                                                    </template>
-                                                </div>
-                                            </div>
+                                        
+                                        <td v-for="idx in 5" :key="'td-'+idx" class="p-2 md:p-3 font-semibold" :class="getColorClass(item.days[idx-1]?.day_status)">
+                                            {{ item.days[idx-1]?.day_status || '-' }}
+                                        </td>
+                                        
+                                        <td class="p-2 md:p-3 font-semibold" :class="getColorClass(item.week_status)">
+                                            {{ item.week_status || '-' }}
                                         </td>
                                     </tr>
+                                    
+                                    <template v-if="expandedRowKey === item.etf_code">
+                                        <tr v-for="week in getPastWeeks(item.etf_code)" :key="week.monday" class="bg-slate-50/80 border-b border-dashed border-gray-100" @click.stop>
+                                            <td class="p-2 md:p-3 font-semibold text-slate-500 text-center sticky left-0 bg-slate-50/95 shadow-[1px_0_0_0_#e2e8f0] z-10 etf-name-column text-[14px]">
+                                                {{ week.weekLabel }}
+                                            </td>
+                                            <td v-for="(day, idx) in week.days" :key="'past-td-'+idx" class="p-1 md:p-2 text-center align-middle">
+                                                <div v-if="day && day.day_status" class="inline-flex items-center justify-center font-semibold text-[13px] whitespace-nowrap">
+                                                    <span class="text-[11px] text-gray-500 font-normal mr-0.5">{{ parseInt(day.date.split('-')[2], 10) }}日:</span>
+                                                    <span :class="getColorClass(day.day_status)">{{ day.day_status }}</span>
+                                                </div>
+                                                <span v-else class="text-gray-300">-</span>
+                                            </td>
+                                            <td class="p-2 md:p-3 text-center font-semibold text-[13px]" :class="getColorClass(week.week_status)">
+                                                {{ week.week_status || '-' }}
+                                            </td>
+                                        </tr>
+                                        <tr v-if="getPastWeeks(item.etf_code).length === 0" class="bg-slate-50/80" @click.stop>
+                                            <td colspan="7" class="p-4 text-center text-xs text-gray-400 italic">
+                                                该月份暂无其他周数据的历史记录
+                                            </td>
+                                        </tr>
+                                    </template>
                                 </template>
-                                <tr v-if="filteredDateData.length === 0">
-                                    <td colspan="5" class="p-8 text-center text-gray-400">
+                                <tr v-if="filteredWeekData.length === 0">
+                                    <td colspan="7" class="p-8 text-center text-gray-400">
                                         <i class="fa-solid fa-folder-open mb-2 text-2xl opacity-50 block"></i>
                                         当前筛选或搜索条件下无触发记录
                                     </td>
@@ -261,8 +211,7 @@
             setup() {
                 const loading = ref(true);
                 const allData = ref([]); 
-                // 🌟 调整：默认值置空，等接口拉到数据后再赋“最新一个交易日”
-                const selectedDate = ref('');
+                const selectedMonday = ref('');
                 const expandedRowKey = ref(null); 
 
                 const searchQuery = ref('');
@@ -270,29 +219,99 @@
                 const searchInput = ref(null);
 
                 const showDropdown = ref(false);
-                const currentYear = ref(new Date().getFullYear());
-                const currentMonth = ref(new Date().getMonth()); 
-
                 const sortColumn = ref(null); 
                 const sortOrder = ref('desc'); 
 
+                const getWeekDays = (dateStr) => {
+                    const parts = dateStr.split('-');
+                    const y = parseInt(parts[0], 10);
+                    const m = parseInt(parts[1], 10) - 1;
+                    const d = parseInt(parts[2], 10);
+                    const dateObj = new Date(y, m, d);
+                    
+                    let dayOfWeek = dateObj.getDay();
+                    const offset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek; 
+                    const monday = new Date(y, m, d + offset);
+                    
+                    const days = [];
+                    for (let i = 0; i < 5; i++) {
+                        const temp = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i);
+                        const ty = temp.getFullYear();
+                        const tm = String(temp.getMonth() + 1).padStart(2, '0');
+                        const td = String(temp.getDate()).padStart(2, '0');
+                        days.push(`${ty}-${tm}-${td}`);
+                    }
+                    return days;
+                };
+
+                const getWeekNumberInMonth = (dateStr) => {
+                    const parts = dateStr.split('-');
+                    const y = parseInt(parts[0], 10);
+                    const m = parseInt(parts[1], 10) - 1;
+                    const d = parseInt(parts[2], 10);
+                    
+                    const firstDay = new Date(y, m, 1);
+                    let firstDayOfWeek = firstDay.getDay(); 
+                    if (firstDayOfWeek === 0) firstDayOfWeek = 7;
+                    
+                    const offset = firstDayOfWeek - 1; 
+                    const weekNum = Math.ceil((d + offset) / 7);
+                    
+                    const chineseNumbers = ['一', '二', '三', '四', '五', '六'];
+                    return `第${chineseNumbers[weekNum - 1] || weekNum}周`;
+                };
+
+                const currentWeekHeaders = computed(() => {
+                    if (!selectedMonday.value) return [];
+                    const days = getWeekDays(selectedMonday.value);
+                    return days.map(d => parseInt(d.split('-')[2], 10)); 
+                });
+
                 const uniqueDatesSet = computed(() => {
                     const validDates = allData.value
-                        .filter(item => (item.am_status || item.pm_status || item.day_status || item.week_status))
+                        .filter(item => (item.day_status || item.week_status))
                         .map(item => item.date);
                     return new Set(validDates);
                 });
 
-                const startDateLimit = computed(() => {
-                    if (allData.value.length === 0) return '';
-                    const sortedDates = [...uniqueDatesSet.value].sort((a, b) => a.localeCompare(b));
-                    return sortedDates[0] || '';
+                const availablePeriods = computed(() => {
+                    const periods = {};
+                    [...uniqueDatesSet.value].forEach(dateStr => {
+                        const wDays = getWeekDays(dateStr);
+                        const monday = wDays[0];
+                        const parts = monday.split('-');
+                        const monthKey = `${parts[0]}-${parts[1]}`;
+                        const monthLabel = `${parts[0]}年${parseInt(parts[1], 10)}月`;
+
+                        if (!periods[monthKey]) {
+                            periods[monthKey] = { monthKey, monthLabel, weeksMap: {} };
+                        }
+
+                        if (!periods[monthKey].weeksMap[monday]) {
+                            periods[monthKey].weeksMap[monday] = {
+                                monday: monday,
+                                weekLabel: getWeekNumberInMonth(monday)
+                            };
+                        }
+                    });
+
+                    const result = Object.values(periods).sort((a, b) => b.monthKey.localeCompare(a.monthKey));
+                    result.forEach(m => {
+                        m.weeks = Object.values(m.weeksMap).sort((a, b) => b.monday.localeCompare(a.monday));
+                    });
+                    return result;
                 });
 
-                const endDateLimit = computed(() => {
-                    if (allData.value.length === 0) return '';
-                    const sortedDates = [...uniqueDatesSet.value].sort((a, b) => b.localeCompare(a));
-                    return sortedDates[0] || '';
+                const currentPeriodLabel = computed(() => {
+                    if (!selectedMonday.value) return '';
+                    for (const m of availablePeriods.value) {
+                        for (const w of m.weeks) {
+                            if (w.monday === selectedMonday.value) {
+                                return `${parseInt(m.monthKey.split('-')[1], 10)}月 · ${w.weekLabel}`;
+                            }
+                        }
+                    }
+                    return '';
                 });
 
                 const toggleDropdown = (e) => {
@@ -317,8 +336,8 @@
                     else setTimeout(() => searchInput.value?.focus(), 100);
                 };
 
-                const selectDate = (dateStr) => {
-                    selectedDate.value = dateStr;
+                const selectWeek = (mondayStr) => {
+                    selectedMonday.value = mondayStr;
                     closeDropdown();
                 };
 
@@ -336,60 +355,6 @@
                     }
                 };
 
-                const prevMonth = (e) => {
-                    e.stopPropagation();
-                    if (currentMonth.value === 0) {
-                        currentMonth.value = 11;
-                        currentYear.value--;
-                    } else {
-                        currentMonth.value--;
-                    }
-                };
-
-                const nextMonth = (e) => {
-                    e.stopPropagation();
-                    if (currentMonth.value === 11) {
-                        currentMonth.value = 0;
-                        currentYear.value++;
-                    } else {
-                        currentMonth.value++;
-                    }
-                };
-
-                const isPrevMonthDisabled = computed(() => {
-                    if (!startDateLimit.value) return true;
-                    const start = new Date(startDateLimit.value);
-                    return currentYear.value <= start.getFullYear() && currentMonth.value <= start.getMonth();
-                });
-
-                const isNextMonthDisabled = computed(() => {
-                    if (!endDateLimit.value) return true;
-                    const end = new Date(endDateLimit.value);
-                    return currentYear.value >= end.getFullYear() && currentMonth.value >= end.getMonth();
-                });
-
-                const calendarBlanks = computed(() => {
-                    const firstDay = new Date(currentYear.value, currentMonth.value, 1).getDay();
-                    return firstDay;
-                });
-
-                const calendarDays = computed(() => {
-                    const days = [];
-                    const lastDay = new Date(currentYear.value, currentMonth.value + 1, 0).getDate();
-                    const startLimit = startDateLimit.value;
-                    
-                    for (let d = 1; d <= lastDay; d++) {
-                        const dateStr = `${currentYear.value}-${String(currentMonth.value + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                        days.push({
-                            dayNum: d,
-                            dateStr: dateStr,
-                            hasData: uniqueDatesSet.value.has(dateStr),
-                            isBeforeStart: startLimit && dateStr < startLimit
-                        });
-                    }
-                    return days;
-                });
-
                 const fetchData = async () => {
                     try {
                         loading.value = true;
@@ -398,9 +363,8 @@
                         
                         if (response.ok) {
                             allData.value = await response.json();
-                            // 🌟 调整：获取数据后，将默认日期设定为最新一个存在数据的交易日
-                            if (endDateLimit.value) {
-                                selectedDate.value = endDateLimit.value;
+                            if (availablePeriods.value.length > 0 && availablePeriods.value[0].weeks.length > 0) {
+                                selectedMonday.value = availablePeriods.value[0].weeks[0].monday;
                             }
                         }
                     } catch (error) {
@@ -411,32 +375,43 @@
                     }
                 };
 
-                const countItemUpDown = (item) => {
-                    let up = 0, down = 0;
-                    [item.am_status, item.pm_status, item.day_status, item.week_status].forEach(status => {
-                        if (status && status !== '-' && status !== '--') {
-                            if (status.includes('+')) up++;
-                            else down++;
-                        }
-                    });
-                    return { up, down };
-                };
-
-                const countData = (item) => {
-                    const { up, down } = countItemUpDown(item);
-                    return up + down;
-                };
-
                 const getStatusVal = (status) => {
                     if (!status || status === '-' || status === '--') return -9999;
                     return parseFloat(status.replace(/[^0-9.-]/g, ''));
                 };
 
-                const filteredDateData = computed(() => {
-                    if (!selectedDate.value) return [];
-
-                    let baseData = allData.value.filter(item => item.date === selectedDate.value);
-                    let validItems = baseData.filter(item => countData(item) > 0);
+                const filteredWeekData = computed(() => {
+                    if (!selectedMonday.value) return [];
+                    const weekDays = getWeekDays(selectedMonday.value); 
+                    
+                    const etfMap = {};
+                    
+                    allData.value.forEach(item => {
+                        const idx = weekDays.indexOf(item.date);
+                        if (idx !== -1) {
+                            if (!etfMap[item.etf_code]) {
+                                etfMap[item.etf_code] = {
+                                    etf_code: item.etf_code,
+                                    etf_name: item.etf_name,
+                                    days: [null, null, null, null, null],
+                                    week_status: null
+                                };
+                            }
+                            etfMap[item.etf_code].days[idx] = item;
+                            
+                            // 🌟 核心修复：因为 allData 是最新的日期排在最前，
+                            // 所以遇到第一个有数据的 week_status，就立马锁死！确保不被这周里更旧的星期几的数据给覆盖回去。
+                            if (!etfMap[item.etf_code].week_status && item.week_status && item.week_status !== '-' && item.week_status !== '--') {
+                                etfMap[item.etf_code].week_status = item.week_status;
+                            }
+                        }
+                    });
+                    
+                    let validItems = Object.values(etfMap).filter(item => {
+                        const hasDay = item.days.some(d => d && d.day_status && d.day_status !== '-' && d.day_status !== '--');
+                        const hasWeek = item.week_status && item.week_status !== '-' && item.week_status !== '--';
+                        return hasDay || hasWeek;
+                    });
                     
                     if (searchQuery.value) {
                         const q = searchQuery.value.toLowerCase().trim();
@@ -446,52 +421,81 @@
                         );
                     }
 
-                    // 排序主逻辑
                     validItems.sort((a, b) => {
-                        // 1. 如果开启了【点击表头单独排序】
                         if (sortColumn.value) {
                             if (sortColumn.value === 'etf_name') {
                                 const cmp = a.etf_name.localeCompare(b.etf_name, 'zh-CN');
                                 return sortOrder.value === 'asc' ? cmp : -cmp;
-                            } else {
-                                const valA = getStatusVal(a[sortColumn.value]);
-                                const valB = getStatusVal(b[sortColumn.value]);
+                            } else if (sortColumn.value.startsWith('d')) {
+                                const idx = parseInt(sortColumn.value.substring(1), 10);
+                                const valA = a.days[idx] ? getStatusVal(a.days[idx].day_status) : -9999;
+                                const valB = b.days[idx] ? getStatusVal(b.days[idx].day_status) : -9999;
                                 
                                 if (valA === -9999 && valB !== -9999) return 1;
                                 if (valB === -9999 && valA !== -9999) return -1;
-                                
+                                return sortOrder.value === 'desc' ? valB - valA : valA - valB;
+                            } else if (sortColumn.value === 'week_status') {
+                                const valA = getStatusVal(a.week_status);
+                                const valB = getStatusVal(b.week_status);
+                                if (valA === -9999 && valB !== -9999) return 1;
+                                if (valB === -9999 && valA !== -9999) return -1;
                                 return sortOrder.value === 'desc' ? valB - valA : valA - valB;
                             }
                         } 
-                        // 2. 🌟 调整：【默认全局绝对值排序规则】(不管涨跌，取数值绝对值由大到小)
                         else {
-                            const getAbsVal = (status) => {
-                                const v = getStatusVal(status);
-                                return v === -9999 ? -9999 : Math.abs(v);
-                            };
-
-                            const aDay = getAbsVal(a.day_status);
-                            const bDay = getAbsVal(b.day_status);
-                            const aHalfMax = Math.max(getAbsVal(a.am_status), getAbsVal(a.pm_status));
-                            const bHalfMax = Math.max(getAbsVal(b.am_status), getAbsVal(b.pm_status));
-                            
-                            const aHasDay = aDay > -9999;
-                            const bHasDay = bDay > -9999;
-                            
-                            // 都存在日线数据，按日线跌涨幅的绝对值由大到小排
-                            if (aHasDay && bHasDay) {
-                                return bDay - aDay;
-                            } 
-                            // 仅其中一方有日线数据，有数据的排在前面
-                            else if (aHasDay && !bHasDay) {
-                                return -1;
-                            } else if (!aHasDay && bHasDay) {
-                                return 1;
-                            } 
-                            // 都不存在日线数据，则按上午或下午最大的绝对值跌涨幅由大到小排
-                            else {
-                                return bHalfMax - aHalfMax;
+                            let latestValidDayIndex = 4;
+                            while (latestValidDayIndex >= 0) {
+                                let hasAnyData = validItems.some(item => 
+                                    item.days[latestValidDayIndex] && 
+                                    item.days[latestValidDayIndex].day_status && 
+                                    item.days[latestValidDayIndex].day_status !== '-' && 
+                                    item.days[latestValidDayIndex].day_status !== '--'
+                                );
+                                if (hasAnyData) break;
+                                latestValidDayIndex--;
                             }
+                            
+                            if (latestValidDayIndex < 0) {
+                                const wkA = Math.abs(getStatusVal(a.week_status));
+                                const wkB = Math.abs(getStatusVal(b.week_status));
+                                return wkB - wkA;
+                            }
+
+                            const getValAbs = (item, idx) => {
+                                const d = item.days[idx];
+                                if (d && d.day_status) {
+                                    const val = getStatusVal(d.day_status);
+                                    return val === -9999 ? -9999 : Math.abs(val);
+                                }
+                                return -9999;
+                            };
+                            
+                            const valA = getValAbs(a, latestValidDayIndex);
+                            const valB = getValAbs(b, latestValidDayIndex);
+                            
+                            if (valA > -9999 && valB > -9999) return valB - valA;
+                            if (valA > -9999) return -1;
+                            if (valB > -9999) return 1;
+                            
+                            const getMaxAbs = (item) => {
+                                let max = -9999;
+                                item.days.forEach(d => {
+                                    if (d && d.day_status) {
+                                        const val = getStatusVal(d.day_status);
+                                        if (val !== -9999) max = Math.max(max, Math.abs(val));
+                                    }
+                                });
+                                return max;
+                            };
+                            const maxA = getMaxAbs(a);
+                            const maxB = getMaxAbs(b);
+                            if (maxA > -9999 && maxB > -9999) return maxB - maxA;
+                            if (maxA > -9999) return -1;
+                            if (maxB > -9999) return 1;
+                            
+                            const wkA = Math.abs(getStatusVal(a.week_status));
+                            const wkB = Math.abs(getStatusVal(b.week_status));
+                            return wkB - wkA;
                         }
                     });
                     
@@ -504,71 +508,54 @@
                 };
 
                 const toggleRow = (item) => {
-                    const key = item.etf_code + '_' + item.date;
-                    expandedRowKey.value = expandedRowKey.value === key ? null : key;
+                    expandedRowKey.value = expandedRowKey.value === item.etf_code ? null : item.etf_code;
                 };
 
-                const getMonthlyCountData = (etf_code, dateStr) => {
-                    if (!dateStr) return { up: 0, down: 0, total: 0 };
-                    const month = dateStr.substring(0, 7);
-                    let totalUp = 0;
-                    let totalDown = 0;
-                    allData.value.forEach(item => {
-                        if (item.etf_code === etf_code && item.date.startsWith(month)) {
-                            const { up, down } = countItemUpDown(item);
-                            totalUp += up;
-                            totalDown += down;
+                const getPastWeeks = (etf_code) => {
+                    if (!selectedMonday.value) return [];
+                    const currentMonth = selectedMonday.value.substring(0, 7);
+                    
+                    const pastData = allData.value.filter(item => 
+                        item.etf_code === etf_code && 
+                        item.date.startsWith(currentMonth) && 
+                        (item.day_status || item.week_status)
+                    );
+                    
+                    const weekMap = {};
+                    pastData.forEach(item => {
+                        const wDays = getWeekDays(item.date);
+                        const monday = wDays[0];
+                        if (monday === selectedMonday.value) return; 
+
+                        if (!weekMap[monday]) {
+                            weekMap[monday] = {
+                                monday: monday,
+                                weekLabel: getWeekNumberInMonth(monday),
+                                days: [null, null, null, null, null],
+                                week_status: null
+                            };
+                        }
+                        const idx = wDays.indexOf(item.date);
+                        weekMap[monday].days[idx] = item;
+                        
+                        // 🌟 这里也同样加上核心修复锁，防止过去周次的数据被颠倒覆盖
+                        if (!weekMap[monday].week_status && item.week_status && item.week_status !== '-' && item.week_status !== '--') {
+                            weekMap[monday].week_status = item.week_status;
                         }
                     });
-                    return { up: totalUp, down: totalDown, total: totalUp + totalDown };
+                    
+                    return Object.values(weekMap).sort((a, b) => b.monday.localeCompare(a.monday));
                 };
 
-                const getMonthlyDetails = (etf_code, dateStr) => {
-                    if (!dateStr) return [];
-                    const month = dateStr.substring(0, 7);
-                    return allData.value
-                        .filter(item => item.etf_code === etf_code && item.date.startsWith(month) && item.date !== dateStr && countData(item) > 0)
-                        .sort((a, b) => b.date.localeCompare(a.date));
-                };
-
-                const formatChineseDate = (dateStr) => {
-                    if (!dateStr) return '';
-                    const parts = dateStr.split('-');
-                    if (parts.length === 3) return `${parseInt(parts[1], 10)}月${parseInt(parts[2], 10)}日`;
-                    return dateStr;
-                };
-
-                const getDetailParts = (detailItem) => {
-                    const raw = [
-                        { status: detailItem.am_status, prefix: '上' },
-                        { status: detailItem.pm_status, prefix: '下' },
-                        { status: detailItem.day_status, prefix: '日' },
-                        { status: detailItem.week_status, prefix: '周' }
-                    ];
-                    const parts = raw.map(r => {
-                        if (!r.status || r.status === '-' || r.status === '--') return { text: '--', cls: 'text-gray-300' };
-                        const cls = r.status.includes('+') ? 'text-red-600 bg-red-50' : 'text-green-600 bg-green-50';
-                        return { text: `${r.prefix}${r.status}`, cls };
-                    });
-                    while (parts.length > 0 && parts[parts.length - 1].text === '--') parts.pop();
-                    return parts;
-                };
-
-                // 核心修改点：重新计算自适应样式
                 const getEtfNameStyle = (item) => {
                     const name = item.etf_name || '';
-                    
                     let visualLength = 0; 
-                    // 粗略计算中英文混合字符的视觉长度
                     for (let i = 0; i < name.length; i++) {
                         const code = name.charCodeAt(i);
                         visualLength += (code >= 0 && code <= 128) ? 0.55 : 1.0;
                     }
-                    
-                    // 增大目标宽度设定为 115px（考虑到130px的外层容器以及右侧图标预留空间）
                     const targetWidth = 115; 
                     let fontSize = targetWidth / Math.max(visualLength, 1);
-                    // 放宽字体的最大/最小值，使其通过放大字号占满单行
                     fontSize = Math.max(10, Math.min(16, fontSize));
                     
                     return {
@@ -593,12 +580,10 @@
                 });
 
                 return {
-                    loading, selectedDate, filteredDateData, getColorClass,
-                    expandedRowKey, toggleRow, getMonthlyCountData, getMonthlyDetails,
-                    formatChineseDate, getDetailParts,
-                    showDropdown, currentYear, currentMonth, calendarBlanks, calendarDays,
-                    isPrevMonthDisabled, isNextMonthDisabled, toggleDropdown, closeDropdown,
-                    selectDate, prevMonth, nextMonth,
+                    loading, selectedMonday, filteredWeekData, getColorClass,
+                    expandedRowKey, toggleRow, getPastWeeks,
+                    showDropdown, toggleDropdown, closeDropdown,
+                    availablePeriods, currentPeriodLabel, selectWeek, currentWeekHeaders,
                     getEtfNameStyle,
                     searchQuery, showSearch, searchInput, toggleSearch, openSearch,
                     sortColumn, sortOrder, handleSort
