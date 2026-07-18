@@ -36,7 +36,7 @@ else:
     TARGET_COL_IDX = TODAY_WEEKDAY + 1  
 
 DATE_STR = NOW.strftime("%m月%d日")
-COVER_TITLE = "本周ETF主力资金异动" if IS_SATURDAY else "今日ETF异动前四数据"
+COVER_TITLE = "本周ETF主力资金异动" if IS_SATURDAY else "今日ETF异动数据top4"
 COVER_SUBTITLE = f"({DATE_STR}-{TIME_LABEL})"
 
 FILE_SUFFIX = NOW.strftime("%Y%m%d_%H%M")
