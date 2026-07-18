@@ -1,10 +1,12 @@
-name: Automated ETF Video Workflow
+name: ETF monitor Workflow
 
 on:
   schedule:
-    # 每天北京时间 16:00 (UTC 08:00)
-    - cron: '0 8 * * 1-5'
-  workflow_dispatch: # 允许手动点击运行
+    # 1. 交易日（周一至周五）北京时间 15:45 (UTC 07:45) -> 运行日线数据
+    - cron: '45 7 * * 1-5'
+    # 2. 周六 北京时间 09:00 (UTC 01:00) -> 运行周线数据
+    - cron: '0 1 * * 6'
+  workflow_dispatch: # 允许手动点击运行，方便测试
 
 jobs:
   build-and-run:
