@@ -39,6 +39,36 @@
     <div class="watermark-overlay"></div>
 
     <div id="app" v-cloak>
+        
+        <!-- TradingView 悬浮图表窗口 -->
+        <div v-show="showTvChart" 
+             class="fixed z-[9999] bg-white border border-gray-200 shadow-2xl rounded-xl overflow-hidden flex flex-col transition-opacity duration-200"
+             :style="{ top: popoverY + 'px', left: popoverX + 'px', width: '520px', height: '360px' }"
+             @mouseenter="cancelHideChart" 
+             @mouseleave="hideChartPopup">
+            
+            <!-- 顶部拖拽/标题栏 -->
+            <div class="bg-slate-800 text-white text-[13px] px-3 py-1.5 flex justify-between items-center font-semibold">
+                <span>
+                    <i class="fa-solid fa-chart-line text-blue-400 mr-1.5"></i> 
+                    {{ currentHoverName }} ({{ currentHoverCode }})
+                </span>
+                <i class="fa-solid fa-xmark cursor-pointer text-gray-300 hover:text-red-400 p-1" @click="showTvChart = false"></i>
+            </div>
+            
+            <!-- 图表容器 -->
+            <div class="flex-1 w-full bg-slate-50 relative">
+                <div v-if="loadingChart" class="absolute inset-0 flex items-center justify-center text-gray-400">
+                    <i class="fa-solid fa-spinner animate-spin text-2xl"></i>
+                </div>
+                <iframe v-if="currentHoverCode" 
+                        :src="tvIframeSrc" 
+                        class="w-full h-full border-none absolute z-10" 
+                        @load="loadingChart = false">
+                </iframe>
+            </div>
+        </div>
+
         <header class="bg-slate-800 text-white shadow-md sticky top-0 z-50 h-[56px]">
             <div class="container mx-auto px-4 h-full flex justify-between items-center">
                 <h1 class="text-lg font-bold flex items-center gap-2">
@@ -143,7 +173,12 @@
                             <tbody class="divide-y divide-gray-100 text-[15px]">
                                 <template v-for="item in filteredWeekData" :key="item.etf_code">
                                     <tr class="hover:bg-blue-50/40 transition-colors cursor-pointer" @click="toggleRow(item)">
-                                        <td class="p-2 md:p-3 font-bold text-gray-800 text-left sticky left-0 bg-white shadow-[1px_0_0_0_#f3f4f6] z-10 etf-name-column">
+                                        
+                                        <!-- 在这里添加悬浮事件触发图表 -->
+                                        <td class="p-2 md:p-3 font-bold text-gray-800 text-left sticky left-0 bg-white shadow-[1px_0_0_0_#f3f4f6] z-10 etf-name-column"
+                                            @mouseenter="showChartPopup($event, item)" 
+                                            @mouseleave="hideChartPopup">
+                                            
                                             <div class="flex flex-col overflow-hidden">
                                                 <div :style="getEtfNameStyle(item)" class="flex items-center justify-between whitespace-nowrap overflow-hidden">
                                                     <span class="text-slate-900 font-bold hover:text-blue-600 transition-colors flex items-center shrink-0 w-full truncate">
@@ -221,6 +256,71 @@
                 const showDropdown = ref(false);
                 const sortColumn = ref(null); 
                 const sortOrder = ref('desc'); 
+
+                // ==========================================
+                // TV 图表悬浮窗相关状态与逻辑
+                // ==========================================
+                const showTvChart = ref(false);
+                const currentHoverCode = ref('');
+                const currentHoverName = ref('');
+                const loadingChart = ref(false);
+                const popoverX = ref(0);
+                const popoverY = ref(0);
+                let hideChartTimer = null;
+
+                // 格式化 TV 识别的证券代码 (上交所 SSE / 深交所 SZSE)
+                const getTvTicker = (code) => {
+                    if (!code) return '';
+                    const cleanCode = code.toString().replace(/[^0-9]/g, '');
+                    if (cleanCode.startsWith('5')) return `SSE:${cleanCode}`;
+                    if (cleanCode.startsWith('1')) return `SZSE:${cleanCode}`;
+                    return `SSE:${cleanCode}`; 
+                };
+
+                // 动态生成 TV Widget 的 iframe 地址 (interval=D 代表日线)
+                const tvIframeSrc = computed(() => {
+                    if (!currentHoverCode.value) return '';
+                    const ticker = getTvTicker(currentHoverCode.value);
+                    return `https://s.tradingview.com/widgetembed/?symbol=${ticker}&interval=D&hidesidetoolbar=1&symboledit=0&saveimage=0&toolbarbg=F1F3F6&theme=light&style=1&timezone=Asia%2FShanghai&locale=zh_CN`;
+                });
+
+                // 触发悬浮窗显示
+                const showChartPopup = (event, item) => {
+                    cancelHideChart();
+                    
+                    if (currentHoverCode.value !== item.etf_code) {
+                        loadingChart.value = true;
+                        currentHoverCode.value = item.etf_code;
+                        currentHoverName.value = item.etf_name;
+                    }
+                    
+                    showTvChart.value = true;
+                    
+                    const popupWidth = 520;
+                    const popupHeight = 360;
+                    let x = event.clientX + 20; 
+                    let y = event.clientY - popupHeight / 2;
+                    
+                    if (x + popupWidth > window.innerWidth) x = event.clientX - popupWidth - 20;
+                    if (y < 10) y = 10;
+                    if (y + popupHeight > window.innerHeight) y = window.innerHeight - popupHeight - 10;
+                    
+                    popoverX.value = x;
+                    popoverY.value = y;
+                };
+
+                // 鼠标移出时延迟隐藏
+                const hideChartPopup = () => {
+                    hideChartTimer = setTimeout(() => {
+                        showTvChart.value = false;
+                    }, 350); 
+                };
+
+                const cancelHideChart = () => {
+                    if (hideChartTimer) clearTimeout(hideChartTimer);
+                };
+                // ==========================================
+
 
                 const getWeekDays = (dateStr) => {
                     const parts = dateStr.split('-');
@@ -399,8 +499,6 @@
                             }
                             etfMap[item.etf_code].days[idx] = item;
                             
-                            // 🌟 核心修复：因为 allData 是最新的日期排在最前，
-                            // 所以遇到第一个有数据的 week_status，就立马锁死！确保不被这周里更旧的星期几的数据给覆盖回去。
                             if (!etfMap[item.etf_code].week_status && item.week_status && item.week_status !== '-' && item.week_status !== '--') {
                                 etfMap[item.etf_code].week_status = item.week_status;
                             }
@@ -538,7 +636,6 @@
                         const idx = wDays.indexOf(item.date);
                         weekMap[monday].days[idx] = item;
                         
-                        // 🌟 这里也同样加上核心修复锁，防止过去周次的数据被颠倒覆盖
                         if (!weekMap[monday].week_status && item.week_status && item.week_status !== '-' && item.week_status !== '--') {
                             weekMap[monday].week_status = item.week_status;
                         }
@@ -586,7 +683,11 @@
                     availablePeriods, currentPeriodLabel, selectWeek, currentWeekHeaders,
                     getEtfNameStyle,
                     searchQuery, showSearch, searchInput, toggleSearch, openSearch,
-                    sortColumn, sortOrder, handleSort
+                    sortColumn, sortOrder, handleSort,
+                    // 暴露TV图表相关变量给模板
+                    showTvChart, currentHoverName, currentHoverCode, loadingChart,
+                    popoverX, popoverY, tvIframeSrc,
+                    showChartPopup, hideChartPopup, cancelHideChart
                 };
             }
         }).mount('#app');
