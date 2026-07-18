@@ -23,7 +23,7 @@ IS_MIDDAY = NOW.hour < 13
 TIME_LABEL = "上午盘" if IS_MIDDAY else "收盘"
 DATE_STR = NOW.strftime("%m月%d日")
 
-COVER_TITLE = "ETF异动前四数据"
+COVER_TITLE = "ETF异动数据top4"
 COVER_SUBTITLE = f"({DATE_STR}-{TIME_LABEL})" if IS_MIDDAY else f"({DATE_STR})"
 FILE_SUFFIX = NOW.strftime("%Y%m%d_%H%M")
 PRIVATE_HOOK = "需要全天候量化异动监控名单，请在评论区留言，带你进内部交流群。" 
