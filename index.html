@@ -383,9 +383,11 @@
                 const filteredWeekData = computed(() => {
                     if (!selectedMonday.value) return [];
                     const weekDays = getWeekDays(selectedMonday.value); 
+                    const fridayDate = weekDays[4]; // 获取本周五的日期边界
                     
                     const etfMap = {};
                     
+                    // 1. 先把本周的日线基本框架和每日数据搭好（仅限本周内的数据）
                     allData.value.forEach(item => {
                         const idx = weekDays.indexOf(item.date);
                         if (idx !== -1) {
@@ -398,9 +400,13 @@
                                 };
                             }
                             etfMap[item.etf_code].days[idx] = item;
-                            
-                            // 🌟 核心修复：因为 allData 是最新的日期排在最前，
-                            // 所以遇到第一个有数据的 week_status，就立马锁死！确保不被这周里更旧的星期几的数据给覆盖回去。
+                        }
+                    });
+                    
+                    // 2. 核心改进：周线状态的跨周期继承
+                    // 只要数据日期早于或等于本周五，就向后追溯最近一次有效的 week_status 进行锁定
+                    allData.value.forEach(item => {
+                        if (item.date <= fridayDate && etfMap[item.etf_code]) {
                             if (!etfMap[item.etf_code].week_status && item.week_status && item.week_status !== '-' && item.week_status !== '--') {
                                 etfMap[item.etf_code].week_status = item.week_status;
                             }
@@ -515,6 +521,7 @@
                     if (!selectedMonday.value) return [];
                     const currentMonth = selectedMonday.value.substring(0, 7);
                     
+                    // 获取该月该 ETF 的所有触发天数
                     const pastData = allData.value.filter(item => 
                         item.etf_code === etf_code && 
                         item.date.startsWith(currentMonth) && 
@@ -522,6 +529,8 @@
                     );
                     
                     const weekMap = {};
+                    
+                    // 1. 组装历史周的日线架构
                     pastData.forEach(item => {
                         const wDays = getWeekDays(item.date);
                         const monday = wDays[0];
@@ -531,20 +540,32 @@
                             weekMap[monday] = {
                                 monday: monday,
                                 weekLabel: getWeekNumberInMonth(monday),
+                                fridayDate: wDays[4], // 记录该周周五日期用于界定追溯范围
                                 days: [null, null, null, null, null],
                                 week_status: null
                             };
                         }
                         const idx = wDays.indexOf(item.date);
                         weekMap[monday].days[idx] = item;
-                        
-                        // 🌟 这里也同样加上核心修复锁，防止过去周次的数据被颠倒覆盖
-                        if (!weekMap[monday].week_status && item.week_status && item.week_status !== '-' && item.week_status !== '--') {
-                            weekMap[monday].week_status = item.week_status;
+                    });
+
+                    // 2. 为每个历史周追溯当时的周线状态
+                    const weekList = Object.values(weekMap);
+                    weekList.forEach(week => {
+                        const targetFriday = week.fridayDate;
+                        // 在完整数据源中寻找该日期及之前的最近一次有效周线状态
+                        for (let i = 0; i < allData.value.length; i++) {
+                            const item = allData.value[i];
+                            if (item.etf_code === etf_code && item.date <= targetFriday) {
+                                if (item.week_status && item.week_status !== '-' && item.week_status !== '--') {
+                                    week.week_status = item.week_status;
+                                    break; // 找到最近一次状态即终止该周的追溯
+                                }
+                            }
                         }
                     });
                     
-                    return Object.values(weekMap).sort((a, b) => b.monday.localeCompare(a.monday));
+                    return weekList.sort((a, b) => b.monday.localeCompare(a.monday));
                 };
 
                 const getEtfNameStyle = (item) => {
