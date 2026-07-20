@@ -127,17 +127,26 @@ def _fit_to_canvas(src, size=(VIDEO_W, VIDEO_H), color=(255, 255, 255)):
     """等比放入 1920x1080 画布（letterbox），保证所有图表比例统一。"""
     return ImageOps.pad(src.convert('RGB'), size, method=Image.Resampling.LANCZOS, color=color)
 
-def _left_center_crop_105(img, size=(VIDEO_W, VIDEO_H)):
+# 需求4：裁掉图表顶部那一行（邮箱水印 hahagw2023@gmail.com + TradingView logo）
+HEADER_CROP_RATIO = 0.09  # 裁掉原图顶部 9%（顶部 logo/邮箱所在区域），不够可调大
+
+def _remove_chart_header(src, header_ratio=HEADER_CROP_RATIO):
     """
-    需求4：把图表放大 105%，左居中对齐，100% 剪切。
-    即先将画布放大到 105%，再以左边对齐、垂直居中裁切回原始尺寸。
+    把图表最上一行文字（邮箱水印 + TradingView logo）剪掉不要。
+    做法：直接裁掉原图顶部 header_ratio 比例，再把剩余部分等比放入 1920x1080 画布。
     """
-    W, H = size
-    sw, sh = int(round(W * 1.05)), int(round(H * 1.05))
-    scaled = img.resize((sw, sh), Image.Resampling.LANCZOS)
-    x = 0                       # 左对齐
-    y = (sh - H) // 2           # 垂直居中
-    return scaled.crop((x, y, x + W, y + H)).resize((W, H), Image.Resampling.LANCZOS)
+    img = src.convert('RGB')
+    w, h = img.size
+    top_cut = int(h * header_ratio)
+    if top_cut > 0:
+        img = img.crop((0, top_cut, w, h))
+    return _fit_to_canvas(img, (VIDEO_W, VIDEO_H))
+
+def _prepare_chart_image_file(img_path):
+    """预处理图表：裁掉顶部 logo/邮箱那一行，等比放入 1920x1080 画布，原地覆盖保存。"""
+    src = Image.open(img_path).convert('RGB')
+    clean = _remove_chart_header(src)
+    clean.save(img_path)
 
 def create_zoom_video(img_path, output_video, duration, fps=VIDEO_FPS, zoom_type='main', srt_file=None):
     frames_dir = f"temp_frames_{os.path.basename(img_path).split('.')[0]}"
@@ -145,19 +154,18 @@ def create_zoom_video(img_path, output_video, duration, fps=VIDEO_FPS, zoom_type
     os.makedirs(frames_dir)
 
     src = Image.open(img_path).convert('RGB')
+    # 图表已在 main 中预处理（裁掉顶部 logo/邮箱 + 加水印），这里只做等比放入画布
     base = _fit_to_canvas(src, (VIDEO_W, VIDEO_H))
 
     W, H = VIDEO_W, VIDEO_H
     total_frames = max(1, int(duration * fps))
 
     if zoom_type == 'tv':
-        # 需求4：先在 base 上做 105% 左居中裁切
-        base = _left_center_crop_105(base, (W, H))
         # 需求3：拉近放大始终以最新 K 线为中心（TradingView 右侧为价格刻度，最新 K 线约在 0.72 处）
         LATEST_KL_X = 0.72 * W
         LATEST_KL_Y = 0.50 * H
-        START_ZOOM = 1.0   # 105% 已在 base 预处理中完成
-        END_ZOOM = 1.55
+        START_ZOOM = 1.0
+        END_ZOOM = 1.2   # 需求3 修订：只放大 20%
 
     for i in range(total_frames):
         if zoom_type == 'tv':
@@ -223,16 +231,15 @@ def _load_cjk_font(size):
 
 def add_watermark_to_chart(img_path, text):
     """
-    需求2：ETF 名称 + 代码水印字体调大很多。
-    自适应字号：水印宽度约占图片 88%、高度不超过 22%，并加白色描边增强可读性。
+    需求2 修订：水印缩小到原来的 1/5，不要描边，黑色字体，透明度 50%。
     """
     try:
         img = Image.open(img_path).convert("RGBA")
         txt_layer = Image.new('RGBA', img.size, (255, 255, 255, 0))
         draw = ImageDraw.Draw(txt_layer)
 
-        target_w = img.width * 0.88   # 水印宽度目标：图片 88%
-        max_h = img.height * 0.22     # 水印高度上限：图片 22%
+        target_w = img.width * 0.18   # 约为原来的 1/5（原 88% → 18%）
+        max_h = img.height * 0.05      # 高度同步缩到约 1/5
 
         # 二分查找最大可用字号（同时受宽度与高度约束）
         lo, hi, best = 40, 6000, 40
@@ -256,11 +263,10 @@ def add_watermark_to_chart(img_path, text):
         bbox = font.getbbox(text)
         text_w = bbox[2] - bbox[0]
         x = (img.width - text_w) / 2
-        y = int(img.height * 0.05)   # 顶部偏下，避开 TradingView 顶部工具栏
+        y = int(img.height * 0.10)   # 顶部偏下，避开拉近裁切区域
 
-        stroke = max(3, int(img.height * 0.006))
-        draw.text((x, y), text, font=font, fill=(0, 0, 0, 210),
-                  stroke_width=stroke, stroke_fill=(255, 255, 255, 220))
+        # 黑色字体 + 50% 透明度（alpha=128），不加描边
+        draw.text((x, y), text, font=font, fill=(0, 0, 0, 128))
 
         out = Image.alpha_composite(img, txt_layer).convert("RGB")
         out.save(img_path)
@@ -310,7 +316,7 @@ def call_ai_director(etf_list, time_label, report_type):
         - "xhs_article": 小红书正文。
         - "gzh_title": 公众号标题。
         - "gzh_article": 公众号正文。
-        - "cover_html": HTML5+CSS。1920x1080（宽屏）。要求：现代金融风，浅色高级渐变背景。标题【{COVER_TITLE}】，副标题【{COVER_SUBTITLE}】。🚨必须在副标题下方，用醒目、美观的卡片或列表，把以上 4只ETF 的名称和涨跌幅数据排版渲染出来！所有字体设置为 'Alibaba PuHuiTi', 'Microsoft YaHei', sans-serif。居中对齐。
+        - "cover_html": HTML5+CSS。1920x1080（宽屏）。要求：现代金融风，浅色高级渐变背景。标题【{COVER_TITLE}】，副标题【{COVER_SUBTITLE}】。🚨必须在副标题下方，用醒目、美观的卡片或列表，把以上 4只ETF 的名称和涨跌幅数据排版渲染出来！涨跌幅染色规则（A股惯例，必须严格遵守）：上涨（正数、带+号）必须用红色字体，下跌（负数、带-号）必须用绿色字体；请根据每只 ETF 涨跌幅的正负号逐一染色。所有字体设置为 'Alibaba PuHuiTi', 'Microsoft YaHei', sans-serif。居中对齐。
         """
 
     payload = {
@@ -534,6 +540,8 @@ async def main():
                 print(f"  ⚠️ 原生下载失败，触发后备截图方案: {e}")
                 await page.screenshot(path=img_output)
             
+            # 需求4：先裁掉顶部 logo/邮箱那一行，再加水印
+            _prepare_chart_image_file(img_output)
             add_watermark_to_chart(img_output, f"{etf['name']} {etf['code']}")
             
         await browser.close()
