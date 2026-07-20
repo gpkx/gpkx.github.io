@@ -383,7 +383,7 @@ async def main():
             await page.mouse.move(1700, 540)
             await page.mouse.click(1700, 540)
             for _ in range(5):
-                await page.mouse.wheel(0, -600)
+                await page.mouse.wheel(0, 800)
                 await page.wait_for_timeout(300)
             
             await page.keyboard.press("Shift+ArrowRight")
@@ -406,10 +406,10 @@ async def main():
                     
                     # 优先加载系统中常用的无衬线中文字体，防止方框
                     try:
-                        font = ImageFont.truetype("msyh.ttc", 70)
+                        font = ImageFont.truetype("msyh.ttc", 200)
                     except:
                         try:
-                            font = ImageFont.truetype("simhei.ttf", 70)
+                            font = ImageFont.truetype("simhei.ttf", 200)
                         except:
                             font = ImageFont.load_default()
                             
