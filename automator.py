@@ -41,8 +41,8 @@ COVER_SUBTITLE = f"({DATE_STR}-{TIME_LABEL})"
 
 FILE_SUFFIX = NOW.strftime("%Y%m%d_%H%M")
 
-PRIVATE_HOOK = "每日完整的主力资金异动数据，将在主页更新。欢迎在评论区留下你的看法，我们一起探讨。" 
-OUTRO_TEXT = "本内容由AI大数据模型客观生成，不构成投资建议，市场有风险，投资需谨慎。"
+PRIVATE_HOOK = "关注我，更新每日异动数据，欢迎评论！" 
+OUTRO_TEXT = "本内容不构成投资建议，市场有风险，投资需谨慎。"
 
 def get_tv_symbol(code):
     if code.startswith(('5', '6')): return f"SSE:{code}"
@@ -125,7 +125,7 @@ def create_zoom_video(img_path, output_video, duration, fps=30, zoom_type='main'
     for i in range(total_frames):
         if zoom_type == 'tv':
             progress = i / total_frames
-            zoom = 1.0 + 0.6 * progress
+            zoom = 1.0 + 0.5 * progress
             cw, ch = int(w/zoom), int(h/zoom)
             cx = int((w - cw) / 2)
             cy = int((h - ch) / 2)
@@ -170,7 +170,7 @@ def add_watermark_to_chart(img_path, text):
                 break
         
         if font_path:
-            font = ImageFont.truetype(font_path, 400) # 这里可以调整字号大小
+            font = ImageFont.truetype(font_path, 100) # 这里可以调整字号大小
         else:
             font = ImageFont.load_default() 
         
@@ -404,16 +404,16 @@ async def main():
             await page.goto(f"{TV_CHART_URL.rstrip('/')}/?symbol={symbol}&interval={tv_int}", wait_until="domcontentloaded")
             
             await page.wait_for_timeout(6000)
-            # await page.keyboard.press("Alt+r")
+            await page.keyboard.press("Alt+r")
             await page.wait_for_timeout(1000)
             await page.keyboard.press("Shift+ArrowRight")
             await page.wait_for_timeout(1000)
 
-            # await page.mouse.move(1700, 540)
-            # await page.mouse.click(1700, 540)
-            # for _ in range(3): 
-                # await page.mouse.wheel(0, -600)
-                # await page.wait_for_timeout(300)
+            await page.mouse.move(1700, 540)
+            await page.mouse.click(1700, 540)
+            for _ in range(5): 
+                await page.mouse.wheel(0, 800)
+                await page.wait_for_timeout(300)
             
             await page.keyboard.press("Shift+ArrowRight")
             await page.wait_for_timeout(500)
@@ -483,7 +483,7 @@ async def main():
     with open("list_v.txt", "w") as f: f.writelines([f"file '{v}'\n" for v in video_segments])
     with open("list_a.txt", "w") as f: f.writelines([f"file '{a}'\n" for a in audio_segments])
     
-    subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "list_v.txt", "-c:v", "copy", "-aspect", "16:9", "temp_v.mp4"], check=True)
+    subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "list_v.txt", "-c:v", "copy", "temp_v.mp4"], check=True)
     subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "list_a.txt", "-c:a", "copy", "temp_a.mp3"], check=True)
 
     final_video = f"etf_report_{FILE_SUFFIX}.mp4"
