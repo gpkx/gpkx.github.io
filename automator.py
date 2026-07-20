@@ -380,7 +380,7 @@ async def main():
             # 鼠标移动并聚焦图表中心区域，确保快捷键指令生效
             await page.mouse.move(960, 540)
             await page.mouse.click(960, 540)
-            for _ in range(4):
+            for _ in range(6):
                 await page.mouse.wheel(0, -600)
                 await page.wait_for_timeout(300)
             
@@ -455,7 +455,7 @@ async def main():
 
     final_video = f"etf_report_{FILE_SUFFIX}.mp4"
     if os.path.exists("bgm.mp3"):
-        subprocess.run(["ffmpeg", "-y", "-i", "temp_v.mp4", "-i", "temp_a.mp3", "-stream_loop", "-1", "-i", "bgm.mp3", "-filter_complex", "[1:a]volume=1.0[a1];[2:a]volume=0.15[a2];[a1][a2]amix=inputs=2:duration=first:dropout_transition=2[a]", "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", final_video], check=True)
+        subprocess.run(["ffmpeg", "-y", "-i", "temp_v.mp4", "-i", "temp_a.mp3", "-stream_loop", "-1", "-i", "bgm.mp3", "-filter_complex", "[1:a]volume=2.0[a1];[2:a]volume=0.15[a2];[a1][a2]amix=inputs=2:duration=first:dropout_transition=2[a]", "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", final_video], check=True)
     else:
         subprocess.run(["ffmpeg", "-y", "-i", "temp_v.mp4", "-i", "temp_a.mp3", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", final_video], check=True)
         
