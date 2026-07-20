@@ -11,7 +11,7 @@ import pytz
 from playwright.async_api import async_playwright
 import edge_tts
 import requests
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageDraw, ImageFont # 新增 ImageDraw, ImageFont
 
 # ==========================================
 # 1. 基础配置
@@ -99,7 +99,7 @@ def create_srt(text, duration, filename):
     end_time = format_time(duration)
     clean_text = text.replace(' ETF ', 'ETF').replace(' ATR ', 'ATR')
     
-    max_chars_per_line = 40 # 宽屏可容纳更多字幕
+    max_chars_per_line = 40 
     lines = [clean_text[i:i+max_chars_per_line] for i in range(0, len(clean_text), max_chars_per_line)]
     text_block = "\n".join(lines)
     
@@ -109,16 +109,15 @@ def create_srt(text, duration, filename):
 def get_subtitle_filter(srt_file):
     if srt_file and os.path.exists(srt_file):
         srt_path = srt_file.replace('\\', '\\\\').replace(':', '\\:')
-        # 修改点 1: PrimaryColour 改为黑色（&H00000000），Outline=0（去描边），Shadow=0（去阴影）
+        # 黑色字幕，无描边 Outline=0，无阴影 Shadow=0
         return f"subtitles={srt_path}:force_style='FontName=Alibaba PuHuiTi,FontSize=12,PrimaryColour=&H00000000,Outline=0,Shadow=0,MarginV=30,Alignment=2'"
     return ""
 
-def create_zoom_video(img_path, output_video, duration, fps=30, zoom_type='main', srt_file=None, etf_info=None):
+def create_zoom_video(img_path, output_video, duration, fps=30, zoom_type='main', srt_file=None):
     frames_dir = f"temp_frames_{os.path.basename(img_path).split('.')[0]}"
     if os.path.exists(frames_dir): shutil.rmtree(frames_dir)
     os.makedirs(frames_dir)
 
-    # 统一将图片处理为 1920x1080 尺寸，防止 concat 失败
     img = Image.open(img_path).convert('RGB')
     img = ImageOps.pad(img, (1920, 1080), method=Image.Resampling.LANCZOS, color=(255,255,255))
     w, h = 1920, 1080 
@@ -126,7 +125,6 @@ def create_zoom_video(img_path, output_video, duration, fps=30, zoom_type='main'
 
     for i in range(total_frames):
         if zoom_type == 'tv':
-            # 暂时不放大剪切原图，这里仅做轻微的推拉平移（如果需要完全静态可改写逻辑）
             progress = i / total_frames
             zoom = 1.0 + 0.05 * progress
             cw, ch = int(w/zoom), int(h/zoom)
@@ -140,12 +138,6 @@ def create_zoom_video(img_path, output_video, duration, fps=30, zoom_type='main'
         frame.save(f"{frames_dir}/frame_{i:04d}.jpg", quality=90)
 
     vf_filters = []
-    
-    # 修改点 2: 在画面正中偏上添加黑色、50%透明度的 ETF 名称和代码
-    if etf_info:
-        # 使用 drawtext 滤镜，位置居中(x=(w-text_w)/2)，偏上(y=150)
-        vf_filters.append(f"drawtext=font='Alibaba PuHuiTi':text='{etf_info}':fontcolor=black@0.5:fontsize=60:x=(w-text_w)/2:y=150")
-        
     sub_filter = get_subtitle_filter(srt_file)
     if sub_filter: vf_filters.append(sub_filter)
 
@@ -164,6 +156,45 @@ def create_static_video(img_path, output_video, duration, fps=30, srt_file=None)
     cmd.extend(["-vf", ",".join(vf_filters)])
     cmd.extend(["-c:v", "libx264", "-r", str(fps), "-pix_fmt", "yuv420p", output_video])
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+# 💡 新增：给原始截取的图表直接添加水印，解决字体验证和下载图表无水印的问题
+def add_watermark_to_chart(img_path, text):
+    try:
+        img = Image.open(img_path).convert("RGBA")
+        
+        # 依次尝试加载系统中常见的中文字体，防止出现方框
+        font_path = None
+        for fp in ["C:/Windows/Fonts/msyh.ttc", "C:/Windows/Fonts/simhei.ttf", "/System/Library/Fonts/PingFang.ttc"]:
+            if os.path.exists(fp):
+                font_path = fp
+                break
+        
+        if font_path:
+            font = ImageFont.truetype(font_path, 65)
+        else:
+            font = ImageFont.load_default() 
+        
+        # 创建一个与原图尺寸一致的透明层
+        txt_layer = Image.new('RGBA', img.size, (255, 255, 255, 0))
+        draw = ImageDraw.Draw(txt_layer)
+        
+        # 兼容不同版本 Pillow 的文字边界获取
+        if hasattr(draw, 'textbbox'):
+            bbox = draw.textbbox((0, 0), text, font=font)
+            text_w = bbox[2] - bbox[0]
+        else:
+            text_w = draw.textsize(text, font=font)[0]
+            
+        x = (img.width - text_w) / 2
+        y = 120 # 正中偏上
+        
+        # 黑色，透明度50% (alpha=128)
+        draw.text((x, y), text, font=font, fill=(0, 0, 0, 128))
+        
+        out = Image.alpha_composite(img, txt_layer).convert("RGB")
+        out.save(img_path)
+    except Exception as e:
+        print(f"  ⚠️ 图表添加水印失败: {e}")
 
 # ==========================================
 # 2. AI 中枢逻辑 
@@ -233,6 +264,7 @@ def call_ai_director(etf_list, time_label, report_type):
     sys.exit(1)
 
 def send_telegram(text, video_path=None, photos=None):
+    # 这里的 tg_host 逻辑完全保留
     bot_token = os.getenv('TELEGRAM_BOT_TOKEN', '').strip()
     chat_id = os.getenv('TELEGRAM_CHAT_ID', '').strip()
     if not bot_token or not chat_id:
@@ -263,7 +295,6 @@ async def main():
     
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        # 🟢 改用电脑端 1920x1080 宽屏视口，确保 TV 功能完整
         context = await browser.new_context(viewport={'width': 1920, 'height': 1080}, accept_downloads=True)
         
         tv_session = os.getenv('TV_SESSION_ID', '').strip()
@@ -336,7 +367,6 @@ async def main():
         await page.wait_for_timeout(2000) 
         await page.screenshot(path="cover_image.png")
 
-        # 🟢 调整 Hook 引导页的布局排版以适应宽屏
         hook_html = """
         <!DOCTYPE html><html><head><meta charset="UTF-8"><style>
             body { background: linear-gradient(135deg, #f8fafc, #e2e8f0); display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: 'Alibaba PuHuiTi', 'Microsoft YaHei'; height: 100vh; margin: 0; text-align: center; }
@@ -355,7 +385,6 @@ async def main():
         await page.wait_for_timeout(1000)
         await page.screenshot(path="hook.png")
 
-        # 🟢 调整免责声明以适应宽屏
         disclaimer_html = """
         <!DOCTYPE html><html><head><meta charset="UTF-8"><style>
             body { background: #f8fafc; display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: 'Alibaba PuHuiTi', 'Microsoft YaHei'; height: 100vh; margin: 0; padding: 0 40px; text-align: center; border: 30px solid #f1f5f9; box-sizing: border-box; }
@@ -384,29 +413,32 @@ async def main():
             await page.keyboard.press("Shift+ArrowRight")
             await page.wait_for_timeout(1000)
 
-            # 鼠标移动并聚焦图表中心区域，确保快捷键指令生效
-            await page.mouse.move(960, 540)
-            await page.mouse.click(960, 540)
+            # 💡 改进点：将鼠标移动到右侧 (1700, 540) K线最新位置，作为放大的聚焦点
+            await page.mouse.move(1700, 540)
+            await page.mouse.click(1700, 540)
             
-            # 修改点 3: 模拟滚轮放大，将原本的 range(6) 修改为 range(3)，精确满足向上滚动 3 次要求
-            for _ in range(3):
-                await page.mouse.wheel(0, -600)
+            # 💡 改进点：增大滚动次数 (12次) 与滚动步长 (-800)，在现有基础上继续放大一倍以上
+            for _ in range(12):
+                await page.mouse.wheel(0, -800)
                 await page.wait_for_timeout(300)
             
             await page.keyboard.press("Shift+ArrowRight")
             await page.wait_for_timeout(500)
 
-            # 🟢 监听原生下载事件，触发快捷键 Ctrl+Alt+S 获取原图
+            img_output = f"ss_etf_{i}.png"
             try:
                 async with page.expect_download(timeout=15000) as download_info:
                     await page.keyboard.press("Control+Alt+s")
                 
                 download = await download_info.value
-                await download.save_as(f"ss_etf_{i}.png")
+                await download.save_as(img_output)
                 print(f"  ✓ 成功下载 ETF_{i} 原始图表")
             except Exception as e:
                 print(f"  ⚠️ 原生下载失败，触发后备截图方案: {e}")
-                await page.screenshot(path=f"ss_etf_{i}.png")
+                await page.screenshot(path=img_output)
+            
+            # 💡 改进点：保存完原图后，立刻为下载的静态图表打上 ETF 名称水印，杜绝方框乱码
+            add_watermark_to_chart(img_output, f"{etf['name']} {etf['code']}")
             
         await browser.close()
 
@@ -438,8 +470,7 @@ async def main():
         create_srt(etf_text, dur_etf, srt_name)
         
         video_name = f"seg_video_etf_{i}.mp4"
-        # 修改点 2(续): 传递 etf_info 变量以供水印渲染使用
-        create_zoom_video(f"ss_etf_{i}.png", video_name, dur_etf, zoom_type='tv', srt_file=srt_name, etf_info=f"{etf['name']} {etf['code']}")
+        create_zoom_video(f"ss_etf_{i}.png", video_name, dur_etf, zoom_type='tv', srt_file=srt_name)
         video_segments.append(video_name)
 
     await safe_generate_tts(PRIVATE_HOOK, "seg_audio_hook.mp3")
