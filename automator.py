@@ -11,7 +11,7 @@ import pytz
 from playwright.async_api import async_playwright
 import edge_tts
 import requests
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageDraw, ImageFont
 
 # ==========================================
 # 1. 基础配置
@@ -99,7 +99,7 @@ def create_srt(text, duration, filename):
     end_time = format_time(duration)
     clean_text = text.replace(' ETF ', 'ETF').replace(' ATR ', 'ATR')
     
-    max_chars_per_line = 40 # 宽屏可容纳更多字幕
+    max_chars_per_line = 40 
     lines = [clean_text[i:i+max_chars_per_line] for i in range(0, len(clean_text), max_chars_per_line)]
     text_block = "\n".join(lines)
     
@@ -109,15 +109,66 @@ def create_srt(text, duration, filename):
 def get_subtitle_filter(srt_file):
     if srt_file and os.path.exists(srt_file):
         srt_path = srt_file.replace('\\', '\\\\').replace(':', '\\:')
-        return f"subtitles={srt_path}:force_style='FontName=Alibaba PuHuiTi,FontSize=12,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,MarginV=30,Alignment=2'"
+        # 优化字幕样式：黑色字体、无描边、带浅色阴影
+        return f"subtitles={srt_path}:force_style='FontName=Alibaba PuHuiTi,FontSize=12,PrimaryColour=&H00000000,Outline=0,Shadow=1,BackColour=&H80000000,MarginV=30,Alignment=2'"
     return ""
+
+def process_tv_chart(img_path, etf_name, etf_code):
+    """ 处理下载的TV图表：白色填充顶部账号和底部Logo，并在正中加上半透明名称 """
+    try:
+        img = Image.open(img_path).convert('RGBA')
+        draw = ImageDraw.Draw(img)
+        w, h = img.size
+        
+        # 1. 顶部和底部白色填充 (顶部约盖住80px，底部盖住50px)
+        draw.rectangle([(0, 0), (w, 80)], fill=(255, 255, 255, 255))
+        draw.rectangle([(0, h - 50), (w, h)], fill=(255, 255, 255, 255))
+        
+        # 2. 准备绘制文字
+        txt = f"{etf_name} ({etf_code})"
+        
+        # 尝试加载中文字体，兼容多系统
+        font_paths = [
+            "msyh.ttc", "simhei.ttf", "simsun.ttc", # Windows
+            "PingFang.ttc", "STHeiti Medium.ttc",   # Mac
+            "wqy-zenhei.ttc", "wqy-microhei.ttc"    # Linux
+        ]
+        font = None
+        for fp in font_paths:
+            try:
+                font = ImageFont.truetype(fp, 40)
+                break
+            except:
+                pass
+        if not font:
+            font = ImageFont.load_default()
+            
+        txt_layer = Image.new('RGBA', img.size, (255, 255, 255, 0))
+        txt_draw = ImageDraw.Draw(txt_layer)
+        
+        try:
+            bbox = txt_draw.textbbox((0, 0), txt, font=font)
+            tw = bbox[2] - bbox[0]
+            th = bbox[3] - bbox[1]
+        except:
+            tw, th = 300, 40 
+            
+        tx = (w - tw) / 2
+        ty = 20 # 文字位于顶部中央偏下
+        
+        # 黑色字体，50%透明度 (alpha = 128)
+        txt_draw.text((tx, ty), txt, font=font, fill=(0, 0, 0, 128))
+        
+        img = Image.alpha_composite(img, txt_layer)
+        img.convert('RGB').save(img_path)
+    except Exception as e:
+        print(f"  ⚠️ 处理图表水印及文字时出错: {e}")
 
 def create_zoom_video(img_path, output_video, duration, fps=30, zoom_type='main', srt_file=None):
     frames_dir = f"temp_frames_{os.path.basename(img_path).split('.')[0]}"
     if os.path.exists(frames_dir): shutil.rmtree(frames_dir)
     os.makedirs(frames_dir)
 
-    # 统一将图片处理为 1920x1080 尺寸，防止 concat 失败
     img = Image.open(img_path).convert('RGB')
     img = ImageOps.pad(img, (1920, 1080), method=Image.Resampling.LANCZOS, color=(255,255,255))
     w, h = 1920, 1080 
@@ -125,11 +176,13 @@ def create_zoom_video(img_path, output_video, duration, fps=30, zoom_type='main'
 
     for i in range(total_frames):
         if zoom_type == 'tv':
-            # 暂时不放大剪切原图，这里仅做轻微的推拉平移（如果需要完全静态可改写逻辑）
             progress = i / total_frames
-            zoom = 1.0 + 0.05 * progress
+            # 缩放倍率放大一倍：从 0.05 提升到 0.10
+            zoom = 1.0 + 0.10 * progress
             cw, ch = int(w/zoom), int(h/zoom)
-            cx = int((w - cw) / 2)
+            
+            # 以最右侧K线为基点拉近放大：横向锚定在画面的最右边
+            cx = w - cw
             cy = int((h - ch) / 2)
         else:
             cw, ch, cx, cy = w, h, 0, 0
@@ -231,7 +284,7 @@ def send_telegram(text, video_path=None, photos=None):
     if not bot_token or not chat_id:
         return
         
-    tg_host = "https://api.telegram.org/bot"
+    tg_host = "[https://api.telegram.org/bot](https://api.telegram.org/bot)"
     try:
         requests.post(f"{tg_host}{bot_token}/sendMessage", data={'chat_id': chat_id, 'text': text}).raise_for_status()
         if video_path and os.path.exists(video_path):
@@ -256,7 +309,6 @@ async def main():
     
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        # 🟢 改用电脑端 1920x1080 宽屏视口，确保 TV 功能完整
         context = await browser.new_context(viewport={'width': 1920, 'height': 1080}, accept_downloads=True)
         
         tv_session = os.getenv('TV_SESSION_ID', '').strip()
@@ -329,7 +381,6 @@ async def main():
         await page.wait_for_timeout(2000) 
         await page.screenshot(path="cover_image.png")
 
-        # 🟢 调整 Hook 引导页的布局排版以适应宽屏
         hook_html = """
         <!DOCTYPE html><html><head><meta charset="UTF-8"><style>
             body { background: linear-gradient(135deg, #f8fafc, #e2e8f0); display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: 'Alibaba PuHuiTi', 'Microsoft YaHei'; height: 100vh; margin: 0; text-align: center; }
@@ -348,7 +399,6 @@ async def main():
         await page.wait_for_timeout(1000)
         await page.screenshot(path="hook.png")
 
-        # 🟢 调整免责声明以适应宽屏
         disclaimer_html = """
         <!DOCTYPE html><html><head><meta charset="UTF-8"><style>
             body { background: #f8fafc; display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: 'Alibaba PuHuiTi', 'Microsoft YaHei'; height: 100vh; margin: 0; padding: 0 40px; text-align: center; border: 30px solid #f1f5f9; box-sizing: border-box; }
@@ -377,27 +427,32 @@ async def main():
             await page.keyboard.press("Shift+ArrowRight")
             await page.wait_for_timeout(1000)
 
-            # 鼠标移动并聚焦图表中心区域，确保快捷键指令生效
-            await page.mouse.move(960, 540)
-            await page.mouse.click(960, 540)
-            for _ in range(6):
+            # 鼠标移动到偏右侧区域(即K线最新处)，以该点为基准中心缩放
+            await page.mouse.move(1700, 540)
+            await page.mouse.click(1700, 540)
+            # 缩放次数从 4 次增加到了 7 次，可进一步减少K线数量
+            for _ in range(7):
                 await page.mouse.wheel(0, -600)
                 await page.wait_for_timeout(300)
             
             await page.keyboard.press("Shift+ArrowRight")
             await page.wait_for_timeout(500)
 
-            # 🟢 监听原生下载事件，触发快捷键 Ctrl+Alt+S 获取原图
             try:
                 async with page.expect_download(timeout=15000) as download_info:
                     await page.keyboard.press("Control+Alt+s")
                 
                 download = await download_info.value
-                await download.save_as(f"ss_etf_{i}.png")
+                save_path = f"ss_etf_{i}.png"
+                await download.save_as(save_path)
                 print(f"  ✓ 成功下载 ETF_{i} 原始图表")
             except Exception as e:
                 print(f"  ⚠️ 原生下载失败，触发后备截图方案: {e}")
-                await page.screenshot(path=f"ss_etf_{i}.png")
+                save_path = f"ss_etf_{i}.png"
+                await page.screenshot(path=save_path)
+            
+            # --- 新增调用：在下载完成后，对图表图片进行水印裁剪和文字处理 ---
+            process_tv_chart(save_path, etf['name'], etf['code'])
             
         await browser.close()
 
