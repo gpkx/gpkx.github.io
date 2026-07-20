@@ -44,6 +44,10 @@ FILE_SUFFIX = NOW.strftime("%Y%m%d_%H%M")
 PRIVATE_HOOK = "关注我，更新每日异动数据，欢迎评论！" 
 OUTRO_TEXT = "本内容不构成投资建议，市场有风险，投资需谨慎。"
 
+# 视频统一规格
+VIDEO_W, VIDEO_H = 1920, 1080
+VIDEO_FPS = 30
+
 def get_tv_symbol(code):
     if code.startswith(('5', '6')): return f"SSE:{code}"
     return f"SZSE:{code}"
@@ -112,32 +116,70 @@ def get_subtitle_filter(srt_file):
         return f"subtitles={srt_path}:force_style='FontName=Alibaba PuHuiTi,FontSize=12,PrimaryColour=&H00000000,Outline=0,Shadow=0,MarginV=30,Alignment=2'"
     return ""
 
-def create_zoom_video(img_path, output_video, duration, fps=30, zoom_type='main', srt_file=None):
+# 统一的视频元数据滤镜：强制 1920x1080 / SAR 1:1，避免 Telegram 预览图比例与封面不一致
+def _sar_filter():
+    return f"scale={VIDEO_W}:{VIDEO_H},setsar=1/1"
+
+# ------------------------------------------
+# 图像变换工具
+# ------------------------------------------
+def _fit_to_canvas(src, size=(VIDEO_W, VIDEO_H), color=(255, 255, 255)):
+    """等比放入 1920x1080 画布（letterbox），保证所有图表比例统一。"""
+    return ImageOps.pad(src.convert('RGB'), size, method=Image.Resampling.LANCZOS, color=color)
+
+def _left_center_crop_105(img, size=(VIDEO_W, VIDEO_H)):
+    """
+    需求4：把图表放大 105%，左居中对齐，100% 剪切。
+    即先将画布放大到 105%，再以左边对齐、垂直居中裁切回原始尺寸。
+    """
+    W, H = size
+    sw, sh = int(round(W * 1.05)), int(round(H * 1.05))
+    scaled = img.resize((sw, sh), Image.Resampling.LANCZOS)
+    x = 0                       # 左对齐
+    y = (sh - H) // 2           # 垂直居中
+    return scaled.crop((x, y, x + W, y + H)).resize((W, H), Image.Resampling.LANCZOS)
+
+def create_zoom_video(img_path, output_video, duration, fps=VIDEO_FPS, zoom_type='main', srt_file=None):
     frames_dir = f"temp_frames_{os.path.basename(img_path).split('.')[0]}"
     if os.path.exists(frames_dir): shutil.rmtree(frames_dir)
     os.makedirs(frames_dir)
 
-    img = Image.open(img_path).convert('RGB')
-    img = ImageOps.pad(img, (1920, 1080), method=Image.Resampling.LANCZOS, color=(255,255,255))
-    w, h = 1920, 1080 
-    total_frames = int(duration * fps)
+    src = Image.open(img_path).convert('RGB')
+    base = _fit_to_canvas(src, (VIDEO_W, VIDEO_H))
+
+    W, H = VIDEO_W, VIDEO_H
+    total_frames = max(1, int(duration * fps))
+
+    if zoom_type == 'tv':
+        # 需求4：先在 base 上做 105% 左居中裁切
+        base = _left_center_crop_105(base, (W, H))
+        # 需求3：拉近放大始终以最新 K 线为中心（TradingView 右侧为价格刻度，最新 K 线约在 0.72 处）
+        LATEST_KL_X = 0.72 * W
+        LATEST_KL_Y = 0.50 * H
+        START_ZOOM = 1.0   # 105% 已在 base 预处理中完成
+        END_ZOOM = 1.55
 
     for i in range(total_frames):
         if zoom_type == 'tv':
-            progress = i / total_frames
-            zoom = 1.0 + 0.5 * progress
-            cw, ch = int(w/zoom), int(h/zoom)
-            cx = int((w - cw) / 2)
-            cy = int((h - ch) / 2)
+            t = i / max(total_frames - 1, 1)
+            zoom = START_ZOOM + (END_ZOOM - START_ZOOM) * t
+            cw = max(1, int(W / zoom))
+            ch = max(1, int(H / zoom))
+            # 以最新 K 线为中心
+            cx = int(LATEST_KL_X - cw / 2)
+            cy = int(LATEST_KL_Y - ch / 2)
+            # 边界约束，避免越界
+            cx = max(0, min(cx, W - cw))
+            cy = max(0, min(cy, H - ch))
         else:
-            cw, ch, cx, cy = w, h, 0, 0
-            
-        box = (cx, cy, cx + cw, cy + ch)
-        frame = img.crop(box).resize((w, h), Image.Resampling.LANCZOS)
-        frame.save(f"{frames_dir}/frame_{i:04d}.jpg", quality=90)
+            cx, cy, cw, ch = 0, 0, W, H
 
-    # 💡 核心修复 1：强制设定生成的帧序列的像素宽高和 SAR 元数据严格为 1920x1080 和 1:1
-    vf_filters = ["scale=1920:1080,setsar=1/1"]
+        box = (cx, cy, cx + cw, cy + ch)
+        frame = base.crop(box).resize((W, H), Image.Resampling.LANCZOS)
+        frame.save(f"{frames_dir}/frame_{i:04d}.jpg", quality=92)
+
+    # 强制帧序列像素为 1920x1080、SAR 1:1
+    vf_filters = [_sar_filter()]
     sub_filter = get_subtitle_filter(srt_file)
     if sub_filter: vf_filters.append(sub_filter)
 
@@ -147,9 +189,9 @@ def create_zoom_video(img_path, output_video, duration, fps=30, zoom_type='main'
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     shutil.rmtree(frames_dir)
 
-def create_static_video(img_path, output_video, duration, fps=30, srt_file=None):
-    # 💡 核心修复 2：在静态视频片段中，强行追加 setsar=1/1，防止与缩放视频的元数据冲突导致 Telegram 压扁视频
-    vf_filters = ["scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1/1"]
+def create_static_video(img_path, output_video, duration, fps=VIDEO_FPS, srt_file=None):
+    vf_filters = [f"scale={VIDEO_W}:{VIDEO_H}:force_original_aspect_ratio=decrease,"
+                  f"pad={VIDEO_W}:{VIDEO_H}:(ow-iw)/2:(oh-ih)/2,setsar=1/1"]
     sub_filter = get_subtitle_filter(srt_file)
     if sub_filter: vf_filters.append(sub_filter)
 
@@ -158,36 +200,68 @@ def create_static_video(img_path, output_video, duration, fps=30, srt_file=None)
     cmd.extend(["-c:v", "libx264", "-r", str(fps), "-pix_fmt", "yuv420p", output_video])
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+def _load_cjk_font(size):
+    """依次尝试 Windows / macOS / Linux 常见中文字体，避免掉到默认小字体。"""
+    candidates = [
+        "C:/Windows/Fonts/msyh.ttc",
+        "C:/Windows/Fonts/msyhbd.ttc",
+        "C:/Windows/Fonts/simhei.ttf",
+        "/System/Library/Fonts/PingFang.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+        "/usr/share/fonts/truetype/arphic/uming.ttc",
+    ]
+    for fp in candidates:
+        if os.path.exists(fp):
+            try:
+                return ImageFont.truetype(fp, size)
+            except Exception:
+                continue
+    return None
+
 def add_watermark_to_chart(img_path, text):
+    """
+    需求2：ETF 名称 + 代码水印字体调大很多。
+    自适应字号：水印宽度约占图片 88%、高度不超过 22%，并加白色描边增强可读性。
+    """
     try:
         img = Image.open(img_path).convert("RGBA")
-        
-        # 依次尝试加载系统中常见的中文字体，防止出现方框
-        font_path = None
-        for fp in ["C:/Windows/Fonts/msyh.ttc", "C:/Windows/Fonts/simhei.ttf", "/System/Library/Fonts/PingFang.ttc"]:
-            if os.path.exists(fp):
-                font_path = fp
-                break
-        
-        if font_path:
-            font = ImageFont.truetype(font_path, 1000) # 这里可以调整字号大小
-        else:
-            font = ImageFont.load_default() 
-        
         txt_layer = Image.new('RGBA', img.size, (255, 255, 255, 0))
         draw = ImageDraw.Draw(txt_layer)
-        
-        if hasattr(draw, 'textbbox'):
-            bbox = draw.textbbox((0, 0), text, font=font)
-            text_w = bbox[2] - bbox[0]
-        else:
-            text_w = draw.textsize(text, font=font)[0]
-            
+
+        target_w = img.width * 0.88   # 水印宽度目标：图片 88%
+        max_h = img.height * 0.22     # 水印高度上限：图片 22%
+
+        # 二分查找最大可用字号（同时受宽度与高度约束）
+        lo, hi, best = 40, 6000, 40
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            f = _load_cjk_font(mid)
+            if f is None:
+                break
+            bbox = f.getbbox(text)
+            tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+            if tw <= target_w and th <= max_h:
+                best = mid
+                lo = mid + 1
+            else:
+                hi = mid - 1
+
+        font = _load_cjk_font(best)
+        if font is None:
+            font = ImageFont.load_default()
+
+        bbox = font.getbbox(text)
+        text_w = bbox[2] - bbox[0]
         x = (img.width - text_w) / 2
-        y = 120 
-        
-        draw.text((x, y), text, font=font, fill=(0, 0, 0, 128))
-        
+        y = int(img.height * 0.05)   # 顶部偏下，避开 TradingView 顶部工具栏
+
+        stroke = max(3, int(img.height * 0.006))
+        draw.text((x, y), text, font=font, fill=(0, 0, 0, 210),
+                  stroke_width=stroke, stroke_fill=(255, 255, 255, 220))
+
         out = Image.alpha_composite(img, txt_layer).convert("RGB")
         out.save(img_path)
     except Exception as e:
@@ -286,12 +360,49 @@ def send_telegram(text, video_path=None, photos=None):
         print(f"🛑 推送至 Telegram 失败: {e}")
         sys.exit(1)
 
+# ==========================================
+# 3. 最终合成：统一重编码，修复 Telegram 预览比例问题
+# ==========================================
+def mux_final_video(temp_v, temp_a, bgm_path, final_video):
+    """
+    需求1：生成的视频默认宽度与封面宽度不一致（Telegram 预览比例失真）。
+    根因：concat 用 -c:v copy 会原样保留各片段的 SAR/DAR 元数据。
+    修复：最终统一重编码，强制 scale=1920:1080, setsar=1/1, aspect=16:9,
+          pix_fmt=yuv420p, +faststart，保证预览与封面（1920x1080）完全一致。
+    """
+    common_v_enc = ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(VIDEO_FPS),
+                    "-aspect", "16:9", "-movflags", "+faststart"]
+    audio_enc = ["-c:a", "aac", "-b:a", "192k", "-shortest"]
+
+    if bgm_path and os.path.exists(bgm_path):
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", temp_v,
+            "-i", temp_a,
+            "-stream_loop", "-1", "-i", bgm_path,
+            "-filter_complex",
+            (f"[0:v]scale={VIDEO_W}:{VIDEO_H},setsar=1/1[v];"
+             "[1:a]volume=2.0[a1];[2:a]volume=0.15[a2];"
+             "[a1][a2]amix=inputs=2:duration=first:dropout_transition=2[a]"),
+            "-map", "[v]", "-map", "[a]",
+        ] + common_v_enc + audio_enc + [final_video]
+    else:
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", temp_v,
+            "-i", temp_a,
+            "-vf", f"scale={VIDEO_W}:{VIDEO_H},setsar=1/1",
+            "-map", "0:v:0", "-map", "1:a:0",
+        ] + common_v_enc + audio_enc + [final_video]
+
+    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
 async def main():
     print(f"🚀 启动自媒体矩阵引擎 | 当前模式: {REPORT_TYPE} | {NOW}")
     
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(viewport={'width': 1920, 'height': 1080}, accept_downloads=True)
+        context = await browser.new_context(viewport={'width': VIDEO_W, 'height': VIDEO_H}, accept_downloads=True)
         
         tv_session = os.getenv('TV_SESSION_ID', '').strip()
         if tv_session:
@@ -480,10 +591,7 @@ async def main():
     subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "list_a.txt", "-c:a", "copy", "temp_a.mp3"], check=True)
 
     final_video = f"etf_report_{FILE_SUFFIX}.mp4"
-    if os.path.exists("bgm.mp3"):
-        subprocess.run(["ffmpeg", "-y", "-i", "temp_v.mp4", "-i", "temp_a.mp3", "-stream_loop", "-1", "-i", "bgm.mp3", "-filter_complex", "[1:a]volume=2.0[a1];[2:a]volume=0.15[a2];[a1][a2]amix=inputs=2:duration=first:dropout_transition=2[a]", "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", final_video], check=True)
-    else:
-        subprocess.run(["ffmpeg", "-y", "-i", "temp_v.mp4", "-i", "temp_a.mp3", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", final_video], check=True)
+    mux_final_video("temp_v.mp4", "temp_a.mp3", "bgm.mp3", final_video)
         
     for tmp in ["temp_v.mp4", "temp_a.mp3"] + video_segments:
         if os.path.exists(tmp): os.remove(tmp)
