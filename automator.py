@@ -11,7 +11,6 @@ import pytz
 from playwright.async_api import async_playwright
 import edge_tts
 import requests
-# 引入 ImageDraw 和 ImageFont 用于处理水印文字
 from PIL import Image, ImageOps, ImageDraw, ImageFont 
 
 # ==========================================
@@ -100,7 +99,7 @@ def create_srt(text, duration, filename):
     end_time = format_time(duration)
     clean_text = text.replace(' ETF ', 'ETF').replace(' ATR ', 'ATR')
     
-    max_chars_per_line = 40 # 宽屏可容纳更多字幕
+    max_chars_per_line = 40 
     lines = [clean_text[i:i+max_chars_per_line] for i in range(0, len(clean_text), max_chars_per_line)]
     text_block = "\n".join(lines)
     
@@ -110,7 +109,6 @@ def create_srt(text, duration, filename):
 def get_subtitle_filter(srt_file):
     if srt_file and os.path.exists(srt_file):
         srt_path = srt_file.replace('\\', '\\\\').replace(':', '\\:')
-        # 1. 修正：黑色字体(&H00000000)，无描边(Outline=0)，无阴影(Shadow=0)
         return f"subtitles={srt_path}:force_style='FontName=Alibaba PuHuiTi,FontSize=12,PrimaryColour=&H00000000,Outline=0,Shadow=0,MarginV=30,Alignment=2'"
     return ""
 
@@ -138,7 +136,8 @@ def create_zoom_video(img_path, output_video, duration, fps=30, zoom_type='main'
         frame = img.crop(box).resize((w, h), Image.Resampling.LANCZOS)
         frame.save(f"{frames_dir}/frame_{i:04d}.jpg", quality=90)
 
-    vf_filters = []
+    # 💡 核心修复 1：强制设定生成的帧序列的像素宽高和 SAR 元数据严格为 1920x1080 和 1:1
+    vf_filters = ["scale=1920:1080,setsar=1/1"]
     sub_filter = get_subtitle_filter(srt_file)
     if sub_filter: vf_filters.append(sub_filter)
 
@@ -149,7 +148,8 @@ def create_zoom_video(img_path, output_video, duration, fps=30, zoom_type='main'
     shutil.rmtree(frames_dir)
 
 def create_static_video(img_path, output_video, duration, fps=30, srt_file=None):
-    vf_filters = ["scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2"]
+    # 💡 核心修复 2：在静态视频片段中，强行追加 setsar=1/1，防止与缩放视频的元数据冲突导致 Telegram 压扁视频
+    vf_filters = ["scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1/1"]
     sub_filter = get_subtitle_filter(srt_file)
     if sub_filter: vf_filters.append(sub_filter)
 
@@ -157,6 +157,41 @@ def create_static_video(img_path, output_video, duration, fps=30, srt_file=None)
     cmd.extend(["-vf", ",".join(vf_filters)])
     cmd.extend(["-c:v", "libx264", "-r", str(fps), "-pix_fmt", "yuv420p", output_video])
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+def add_watermark_to_chart(img_path, text):
+    try:
+        img = Image.open(img_path).convert("RGBA")
+        
+        # 依次尝试加载系统中常见的中文字体，防止出现方框
+        font_path = None
+        for fp in ["C:/Windows/Fonts/msyh.ttc", "C:/Windows/Fonts/simhei.ttf", "/System/Library/Fonts/PingFang.ttc"]:
+            if os.path.exists(fp):
+                font_path = fp
+                break
+        
+        if font_path:
+            font = ImageFont.truetype(font_path, 180) # 这里可以调整字号大小
+        else:
+            font = ImageFont.load_default() 
+        
+        txt_layer = Image.new('RGBA', img.size, (255, 255, 255, 0))
+        draw = ImageDraw.Draw(txt_layer)
+        
+        if hasattr(draw, 'textbbox'):
+            bbox = draw.textbbox((0, 0), text, font=font)
+            text_w = bbox[2] - bbox[0]
+        else:
+            text_w = draw.textsize(text, font=font)[0]
+            
+        x = (img.width - text_w) / 2
+        y = 120 
+        
+        draw.text((x, y), text, font=font, fill=(0, 0, 0, 128))
+        
+        out = Image.alpha_composite(img, txt_layer).convert("RGB")
+        out.save(img_path)
+    except Exception as e:
+        print(f"  ⚠️ 图表添加水印失败: {e}")
 
 # ==========================================
 # 2. AI 中枢逻辑 
@@ -231,9 +266,7 @@ def send_telegram(text, video_path=None, photos=None):
     if not bot_token or not chat_id:
         return
         
-    # 为了防止聊天软件把这里的链接强行渲染成 markdown 超链接，打断字符串
     tg_host = "https://api.telegram.org/bot"
-    
     try:
         requests.post(f"{tg_host}{bot_token}/sendMessage", data={'chat_id': chat_id, 'text': text}).raise_for_status()
         if video_path and os.path.exists(video_path):
@@ -258,7 +291,6 @@ async def main():
     
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        # 🟢 改用电脑端 1920x1080 宽屏视口，确保 TV 功能完整
         context = await browser.new_context(viewport={'width': 1920, 'height': 1080}, accept_downloads=True)
         
         tv_session = os.getenv('TV_SESSION_ID', '').strip()
@@ -331,7 +363,6 @@ async def main():
         await page.wait_for_timeout(2000) 
         await page.screenshot(path="cover_image.png")
 
-        # 🟢 调整 Hook 引导页的布局排版以适应宽屏
         hook_html = """
         <!DOCTYPE html><html><head><meta charset="UTF-8"><style>
             body { background: linear-gradient(135deg, #f8fafc, #e2e8f0); display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: 'Alibaba PuHuiTi', 'Microsoft YaHei'; height: 100vh; margin: 0; text-align: center; }
@@ -350,7 +381,6 @@ async def main():
         await page.wait_for_timeout(1000)
         await page.screenshot(path="hook.png")
 
-        # 🟢 调整免责声明以适应宽屏
         disclaimer_html = """
         <!DOCTYPE html><html><head><meta charset="UTF-8"><style>
             body { background: #f8fafc; display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: 'Alibaba PuHuiTi', 'Microsoft YaHei'; height: 100vh; margin: 0; padding: 0 40px; text-align: center; border: 30px solid #f1f5f9; box-sizing: border-box; }
@@ -379,62 +409,28 @@ async def main():
             await page.keyboard.press("Shift+ArrowRight")
             await page.wait_for_timeout(1000)
 
-            # 3. 修正：移动到最右侧K线 (x=1700) 为基准，点击并向上滚轮 3 次
             await page.mouse.move(1700, 540)
             await page.mouse.click(1700, 540)
-            for _ in range(5):
+            for _ in range(5): 
                 await page.mouse.wheel(0, 800)
                 await page.wait_for_timeout(300)
             
             await page.keyboard.press("Shift+ArrowRight")
             await page.wait_for_timeout(500)
 
-            # 🟢 监听原生下载事件，触发快捷键 Ctrl+Alt+S 获取原图
-            img_path = f"ss_etf_{i}.png"
+            img_output = f"ss_etf_{i}.png"
             try:
                 async with page.expect_download(timeout=15000) as download_info:
                     await page.keyboard.press("Control+Alt+s")
                 
                 download = await download_info.value
-                await download.save_as(img_path)
-                
-                # 2 & 4. 修正：原生下载完原图后，立刻通过代码打上中文字体水印。从根源避免方框乱码。
-                try:
-                    img = Image.open(img_path).convert("RGBA")
-                    txt_layer = Image.new("RGBA", img.size, (255, 255, 255, 0))
-                    draw = ImageDraw.Draw(txt_layer)
-                    
-                    # 优先加载系统中常用的无衬线中文字体，防止方框
-                    try:
-                        font = ImageFont.truetype("msyh.ttc", 200)
-                    except:
-                        try:
-                            font = ImageFont.truetype("simhei.ttf", 200)
-                        except:
-                            font = ImageFont.load_default()
-                            
-                    watermark_text = f"{etf['name']} {etf['code']}"
-                    
-                    if hasattr(draw, 'textbbox'):
-                        bbox = draw.textbbox((0,0), watermark_text, font=font)
-                        text_w = bbox[2] - bbox[0]
-                    else:
-                        text_w = draw.textsize(watermark_text, font=font)[0]
-                        
-                    x = (img.width - text_w) / 2
-                    y = 150 # 正中偏上
-                    
-                    # 黑色，透明度50%（255*0.5=127）
-                    draw.text((x, y), watermark_text, font=font, fill=(0, 0, 0, 127))
-                    out = Image.alpha_composite(img, txt_layer).convert("RGB")
-                    out.save(img_path)
-                except Exception as ex:
-                    print(f"  ⚠️ 水印添加失败: {ex}")
-                    
-                print(f"  ✓ 成功下载 ETF_{i} 原始图表并添加水印")
+                await download.save_as(img_output)
+                print(f"  ✓ 成功下载 ETF_{i} 原始图表")
             except Exception as e:
                 print(f"  ⚠️ 原生下载失败，触发后备截图方案: {e}")
-                await page.screenshot(path=img_path)
+                await page.screenshot(path=img_output)
+            
+            add_watermark_to_chart(img_output, f"{etf['name']} {etf['code']}")
             
         await browser.close()
 
