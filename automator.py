@@ -109,10 +109,11 @@ def create_srt(text, duration, filename):
 def get_subtitle_filter(srt_file):
     if srt_file and os.path.exists(srt_file):
         srt_path = srt_file.replace('\\', '\\\\').replace(':', '\\:')
-        return f"subtitles={srt_path}:force_style='FontName=Alibaba PuHuiTi,FontSize=12,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,MarginV=30,Alignment=2'"
+        # 修改点 1: PrimaryColour 改为黑色（&H00000000），Outline=0（去描边），Shadow=0（去阴影）
+        return f"subtitles={srt_path}:force_style='FontName=Alibaba PuHuiTi,FontSize=12,PrimaryColour=&H00000000,Outline=0,Shadow=0,MarginV=30,Alignment=2'"
     return ""
 
-def create_zoom_video(img_path, output_video, duration, fps=30, zoom_type='main', srt_file=None):
+def create_zoom_video(img_path, output_video, duration, fps=30, zoom_type='main', srt_file=None, etf_info=None):
     frames_dir = f"temp_frames_{os.path.basename(img_path).split('.')[0]}"
     if os.path.exists(frames_dir): shutil.rmtree(frames_dir)
     os.makedirs(frames_dir)
@@ -139,6 +140,12 @@ def create_zoom_video(img_path, output_video, duration, fps=30, zoom_type='main'
         frame.save(f"{frames_dir}/frame_{i:04d}.jpg", quality=90)
 
     vf_filters = []
+    
+    # 修改点 2: 在画面正中偏上添加黑色、50%透明度的 ETF 名称和代码
+    if etf_info:
+        # 使用 drawtext 滤镜，位置居中(x=(w-text_w)/2)，偏上(y=150)
+        vf_filters.append(f"drawtext=font='Alibaba PuHuiTi':text='{etf_info}':fontcolor=black@0.5:fontsize=60:x=(w-text_w)/2:y=150")
+        
     sub_filter = get_subtitle_filter(srt_file)
     if sub_filter: vf_filters.append(sub_filter)
 
@@ -380,7 +387,9 @@ async def main():
             # 鼠标移动并聚焦图表中心区域，确保快捷键指令生效
             await page.mouse.move(960, 540)
             await page.mouse.click(960, 540)
-            for _ in range(6):
+            
+            # 修改点 3: 模拟滚轮放大，将原本的 range(6) 修改为 range(3)，精确满足向上滚动 3 次要求
+            for _ in range(3):
                 await page.mouse.wheel(0, -600)
                 await page.wait_for_timeout(300)
             
@@ -429,7 +438,8 @@ async def main():
         create_srt(etf_text, dur_etf, srt_name)
         
         video_name = f"seg_video_etf_{i}.mp4"
-        create_zoom_video(f"ss_etf_{i}.png", video_name, dur_etf, zoom_type='tv', srt_file=srt_name)
+        # 修改点 2(续): 传递 etf_info 变量以供水印渲染使用
+        create_zoom_video(f"ss_etf_{i}.png", video_name, dur_etf, zoom_type='tv', srt_file=srt_name, etf_info=f"{etf['name']} {etf['code']}")
         video_segments.append(video_name)
 
     await safe_generate_tts(PRIVATE_HOOK, "seg_audio_hook.mp3")
