@@ -11,7 +11,7 @@ import pytz
 from playwright.async_api import async_playwright
 import edge_tts
 import requests
-from PIL import Image
+from PIL import Image, ImageOps
 
 # ==========================================
 # 1. 基础配置
@@ -41,7 +41,6 @@ COVER_SUBTITLE = f"({DATE_STR}-{TIME_LABEL})"
 
 FILE_SUFFIX = NOW.strftime("%Y%m%d_%H%M")
 
-# 🚀 话术优化：去“量化”化，改用“主力”、“AI大数据”
 PRIVATE_HOOK = "每日完整的主力资金异动数据，将在主页更新。欢迎在评论区留下你的看法，我们一起探讨。" 
 OUTRO_TEXT = "本内容由AI大数据模型客观生成，不构成投资建议，市场有风险，投资需谨慎。"
 
@@ -89,7 +88,6 @@ def clean_for_tts(text):
     text = re.sub(r'(?i)\ba股\b', ' A股 ', text)
     return text.strip()
 
-# 🚀 修复字幕宽度：加宽到 28 字符
 def create_srt(text, duration, filename):
     def format_time(seconds):
         m, s = divmod(seconds, 60)
@@ -101,7 +99,7 @@ def create_srt(text, duration, filename):
     end_time = format_time(duration)
     clean_text = text.replace(' ETF ', 'ETF').replace(' ATR ', 'ATR')
     
-    max_chars_per_line = 24 
+    max_chars_per_line = 40 # 宽屏可容纳更多字幕
     lines = [clean_text[i:i+max_chars_per_line] for i in range(0, len(clean_text), max_chars_per_line)]
     text_block = "\n".join(lines)
     
@@ -111,7 +109,7 @@ def create_srt(text, duration, filename):
 def get_subtitle_filter(srt_file):
     if srt_file and os.path.exists(srt_file):
         srt_path = srt_file.replace('\\', '\\\\').replace(':', '\\:')
-        return f"subtitles={srt_path}:force_style='FontName=Alibaba PuHuiTi,FontSize=8,PrimaryColour=&H00000000,Outline=0,Shadow=0,MarginV=20,Alignment=2'"
+        return f"subtitles={srt_path}:force_style='FontName=Alibaba PuHuiTi,FontSize=12,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,MarginV=30,Alignment=2'"
     return ""
 
 def create_zoom_video(img_path, output_video, duration, fps=30, zoom_type='main', srt_file=None):
@@ -119,19 +117,23 @@ def create_zoom_video(img_path, output_video, duration, fps=30, zoom_type='main'
     if os.path.exists(frames_dir): shutil.rmtree(frames_dir)
     os.makedirs(frames_dir)
 
+    # 统一将图片处理为 1920x1080 尺寸，防止 concat 失败
     img = Image.open(img_path).convert('RGB')
-    w, h = img.size 
+    img = ImageOps.pad(img, (1920, 1080), method=Image.Resampling.LANCZOS, color=(255,255,255))
+    w, h = 1920, 1080 
     total_frames = int(duration * fps)
 
     for i in range(total_frames):
         if zoom_type == 'tv':
+            # 暂时不放大剪切原图，这里仅做轻微的推拉平移（如果需要完全静态可改写逻辑）
             progress = i / total_frames
-            zoom = 1.0 + 0.15 * progress
+            zoom = 1.0 + 0.05 * progress
             cw, ch = int(w/zoom), int(h/zoom)
-            cx = w - cw
+            cx = int((w - cw) / 2)
             cy = int((h - ch) / 2)
         else:
             cw, ch, cx, cy = w, h, 0, 0
+            
         box = (cx, cy, cx + cw, cy + ch)
         frame = img.crop(box).resize((w, h), Image.Resampling.LANCZOS)
         frame.save(f"{frames_dir}/frame_{i:04d}.jpg", quality=90)
@@ -147,12 +149,12 @@ def create_zoom_video(img_path, output_video, duration, fps=30, zoom_type='main'
     shutil.rmtree(frames_dir)
 
 def create_static_video(img_path, output_video, duration, fps=30, srt_file=None):
-    vf_filters = []
+    vf_filters = ["scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2"]
     sub_filter = get_subtitle_filter(srt_file)
     if sub_filter: vf_filters.append(sub_filter)
 
     cmd = ["ffmpeg", "-y", "-loop", "1", "-i", img_path, "-t", str(duration)]
-    if vf_filters: cmd.extend(["-vf", ",".join(vf_filters)])
+    cmd.extend(["-vf", ",".join(vf_filters)])
     cmd.extend(["-c:v", "libx264", "-r", str(fps), "-pix_fmt", "yuv420p", output_video])
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -199,7 +201,7 @@ def call_ai_director(etf_list, time_label, report_type):
         - "xhs_article": 小红书正文。
         - "gzh_title": 公众号标题。
         - "gzh_article": 公众号正文。
-        - "cover_html": HTML5+CSS。720x1280。要求：现代金融风，浅色高级渐变背景。标题【{COVER_TITLE}】，副标题【{COVER_SUBTITLE}】。🚨必须在副标题下方，用醒目、美观的卡片或列表，把以上 4只ETF 的名称和涨跌幅数据排版渲染出来！所有字体设置为 'Alibaba PuHuiTi', 'Microsoft YaHei', sans-serif。居中对齐。
+        - "cover_html": HTML5+CSS。1920x1080（宽屏）。要求：现代金融风，浅色高级渐变背景。标题【{COVER_TITLE}】，副标题【{COVER_SUBTITLE}】。🚨必须在副标题下方，用醒目、美观的卡片或列表，把以上 4只ETF 的名称和涨跌幅数据排版渲染出来！所有字体设置为 'Alibaba PuHuiTi', 'Microsoft YaHei', sans-serif。居中对齐。
         """
 
     payload = {
@@ -254,7 +256,8 @@ async def main():
     
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(viewport={'width': 720, 'height': 1280})
+        # 🟢 改用电脑端 1920x1080 宽屏视口，确保 TV 功能完整
+        context = await browser.new_context(viewport={'width': 1920, 'height': 1080}, accept_downloads=True)
         
         tv_session = os.getenv('TV_SESSION_ID', '').strip()
         if tv_session:
@@ -263,8 +266,6 @@ async def main():
                 {'name': 'sessionid', 'value': tv_session, 'domain': '.tradingview.com', 'path': '/'},
                 {'name': 'sessionid', 'value': tv_session, 'domain': '.cn.tradingview.com', 'path': '/'}
             ])
-        else:
-            print("⚠️ 警告：未配置 TV_SESSION_ID，图表将以游客模式加载，无法显示自定义指标！")
 
         page = await context.new_page()
 
@@ -290,42 +291,26 @@ async def main():
                         etf_list.append({"name": name, "code": code, "change": target_val})
             
             etf_list.sort(key=lambda x: abs(parse_pct_to_float(x['change'])), reverse=True)
-           # ==========================================
-            # 🚀 新增：同步完整异动数据到 Cloudflare 数据库
-            # ==========================================
+            
             if etf_list:
-                # 🛡️ 安全升级：改用环境变量读取，绝不在公开代码中写死！
                 cf_url = os.getenv("CF_WORKER_URL", "").strip()
                 cf_token = os.getenv("CF_API_TOKEN", "").strip()
                 
-                if not cf_url or not cf_token:
-                    print("⚠️ 未配置 CF_WORKER_URL 或 CF_API_TOKEN 环境变量，跳过数据库同步。")
-                else:
-                    # 转换数据格式以适配数据库表结构
+                if cf_url and cf_token:
                     data_list = []
                     for etf in etf_list:
-                        item = {
-                            "etf_code": etf["code"],
-                            "etf_name": etf["name"]
-                        }
-                        # 根据当前是周六还是工作日，判断写入哪个字段
-                        if IS_SATURDAY:
-                            item["week_status"] = etf["change"]
-                        else:
-                            item["day_status"] = etf["change"]
+                        item = {"etf_code": etf["code"], "etf_name": etf["name"]}
+                        if IS_SATURDAY: item["week_status"] = etf["change"]
+                        else: item["day_status"] = etf["change"]
                         data_list.append(item)
                     
-                    # 发送鉴权请求
-                    cf_headers = {
-                        "Content-Type": "application/json",
-                        "Authorization": f"Bearer {cf_token}"
-                    }
+                    cf_headers = {"Content-Type": "application/json", "Authorization": f"Bearer {cf_token}"}
                     try:
                         cf_response = requests.post(cf_url, json=data_list, headers=cf_headers, timeout=30)
                         print(f"☁️ Cloudflare 同步结果: {cf_response.text}")
                     except Exception as e:
                         print(f"⚠️ 同步到 Cloudflare 失败: {e}")
-            # ==========================================
+
             etf_list = etf_list[:4]
         except Exception as e:
             print(f"提取数据发生异常: {e}")
@@ -344,13 +329,14 @@ async def main():
         await page.wait_for_timeout(2000) 
         await page.screenshot(path="cover_image.png")
 
+        # 🟢 调整 Hook 引导页的布局排版以适应宽屏
         hook_html = """
         <!DOCTYPE html><html><head><meta charset="UTF-8"><style>
             body { background: linear-gradient(135deg, #f8fafc, #e2e8f0); display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: 'Alibaba PuHuiTi', 'Microsoft YaHei'; height: 100vh; margin: 0; text-align: center; }
-            .card { background: rgba(255, 255, 255, 0.8); padding: 60px 40px; border-radius: 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); }
-            h1 { color: #1e293b; font-size: 55px; margin-bottom: 40px; font-weight: bold; }
-            p { font-size: 34px; line-height: 2.2; color: #475569; }
-            .highlight { background: #3b82f6; color: white; padding: 10px 25px; border-radius: 15px; font-weight: bold;}
+            .card { background: rgba(255, 255, 255, 0.8); padding: 80px 100px; border-radius: 40px; box-shadow: 0 10px 40px rgba(0,0,0,0.05); }
+            h1 { color: #1e293b; font-size: 70px; margin-bottom: 50px; font-weight: bold; }
+            p { font-size: 45px; line-height: 2.2; color: #475569; }
+            .highlight { background: #3b82f6; color: white; padding: 15px 35px; border-radius: 20px; font-weight: bold;}
         </style></head><body>
             <div class="card">
                 <h1>获取每日主力监控图表</h1>
@@ -362,12 +348,13 @@ async def main():
         await page.wait_for_timeout(1000)
         await page.screenshot(path="hook.png")
 
+        # 🟢 调整免责声明以适应宽屏
         disclaimer_html = """
         <!DOCTYPE html><html><head><meta charset="UTF-8"><style>
-            body { background: #f8fafc; display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: 'Alibaba PuHuiTi', 'Microsoft YaHei'; height: 100vh; margin: 0; padding: 0 40px; text-align: center; border: 20px solid #f1f5f9; box-sizing: border-box; }
-            h1 { color: #0f172a; font-size: 60px; margin-bottom: 50px; font-weight: bold; letter-spacing: 5px; }
-            p { font-size: 32px; line-height: 2; color: #475569; }
-            .footer { margin-top: 60px; font-size: 24px; color: #94a3b8; border-top: 2px solid #e2e8f0; padding-top: 30px; width: 80%; }
+            body { background: #f8fafc; display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: 'Alibaba PuHuiTi', 'Microsoft YaHei'; height: 100vh; margin: 0; padding: 0 40px; text-align: center; border: 30px solid #f1f5f9; box-sizing: border-box; }
+            h1 { color: #0f172a; font-size: 75px; margin-bottom: 60px; font-weight: bold; letter-spacing: 10px; }
+            p { font-size: 40px; line-height: 2; color: #475569; }
+            .footer { margin-top: 80px; font-size: 30px; color: #94a3b8; border-top: 2px solid #e2e8f0; padding-top: 40px; width: 60%; }
         </style></head><body>
             <h1>免责声明</h1>
             <p>本视频内所有数据、图表及指标读数<br>均基于AI大数据模型客观记录生成<br><br>不代表标的真实涨跌幅<br>亦不构成任何投资建议</p>
@@ -378,64 +365,43 @@ async def main():
         await page.wait_for_timeout(1000)
         await page.screenshot(path="disclaimer.png")
 
-        print("🌐 正在抓取 TV 原生图表 (处理水印注入与自适应缩放)...")
-        clean_css = ".layout__area--top, .layout__area--left, .layout__area--right, .layout__area--bottom { display: none !important; } .layout__area--center { position: fixed !important; top: 0 !important; left: 0 !important; width: 100vw !important; height: 100vh !important; z-index: 9999 !important; }"
-        
+        print("🌐 正在使用快捷键原生下载 TV 图表...")
         for i, etf in enumerate(etf_list):
             symbol = get_tv_symbol(etf['code'])
             tv_int = "W" if TV_INTERVAL == "1W" else TV_INTERVAL
             await page.goto(f"{TV_CHART_URL.rstrip('/')}/?symbol={symbol}&interval={tv_int}", wait_until="domcontentloaded")
             
-            await page.wait_for_timeout(5000)
+            await page.wait_for_timeout(6000)
             await page.keyboard.press("Alt+r")
             await page.wait_for_timeout(1000)
             await page.keyboard.press("Shift+ArrowRight")
             await page.wait_for_timeout(1000)
 
-            # 🚀 模拟鼠标滚轮向上滚动，减少K线数量，原生放大K线及标签
-            await page.mouse.move(360, 640)
-            for _ in range(4):
+            # 鼠标移动并聚焦图表中心区域，确保快捷键指令生效
+            await page.mouse.move(960, 540)
+            await page.mouse.click(960, 540)
+            for _ in range(6):
                 await page.mouse.wheel(0, -600)
                 await page.wait_for_timeout(300)
             
-            # 再确保一次定位到最新K线
             await page.keyboard.press("Shift+ArrowRight")
             await page.wait_for_timeout(500)
 
-            await page.add_style_tag(content=clean_css)
-            
-            # 🚀 注入图表中上位置 ETF名称+代码 (黑色, 50%透明, 40px)
-            overlay_js = f"""
-            let nameOverlay = document.createElement('div');
-            nameOverlay.innerText = '{etf["name"]} ({etf["code"]})';
-            nameOverlay.style.position = 'fixed';
-            nameOverlay.style.top = '12%'; 
-            nameOverlay.style.left = '50%';
-            nameOverlay.style.transform = 'translateX(-50%)';
-            nameOverlay.style.fontSize = '40px';
-            nameOverlay.style.color = 'rgba(0, 0, 0, 0.5)';
-            nameOverlay.style.fontWeight = 'bold';
-            nameOverlay.style.fontFamily = '"Alibaba PuHuiTi", "Microsoft YaHei", sans-serif';
-            nameOverlay.style.zIndex = '999999';
-            nameOverlay.style.letterSpacing = '2px';
-            document.body.appendChild(nameOverlay);
-            """
-            await page.evaluate(overlay_js)
-
-            # 🚀 左对齐 (top left)，整体放大1.15倍涵盖了横向110%的要求，同时让所有文字元素更清晰
-            zoom_js = """
-            document.body.style.transform = 'scaleX(1.3) scaleY(1.15)';
-            document.body.style.transformOrigin = 'top left';
-            """
-            await page.evaluate(zoom_js)
-            await page.evaluate("window.dispatchEvent(new Event('resize'));")
-            await page.wait_for_timeout(3000)
-            
-            await page.screenshot(path=f"ss_etf_{i}.png", clip={'x': 0, 'y': 0, 'width': 720, 'height': 1280})
+            # 🟢 监听原生下载事件，触发快捷键 Ctrl+Alt+S 获取原图
+            try:
+                async with page.expect_download(timeout=15000) as download_info:
+                    await page.keyboard.press("Control+Alt+s")
+                
+                download = await download_info.value
+                await download.save_as(f"ss_etf_{i}.png")
+                print(f"  ✓ 成功下载 ETF_{i} 原始图表")
+            except Exception as e:
+                print(f"  ⚠️ 原生下载失败，触发后备截图方案: {e}")
+                await page.screenshot(path=f"ss_etf_{i}.png")
             
         await browser.close()
 
-    print("🎵 正在生成字幕、合成配音与物理运镜序列...")
+    print("🎵 正在生成字幕、合成配音与视频序列...")
     video_segments = []
     audio_segments = []
 
@@ -480,7 +446,7 @@ async def main():
     create_static_video("disclaimer.png", "seg_video_outro.mp4", dur_outro, srt_file="sub_outro.srt")
     video_segments.append("seg_video_outro.mp4")
 
-    print("🎬 正在无缝拼装带字幕的竖屏音视频序列...")
+    print("🎬 正在无缝拼装带字幕的宽屏音视频序列...")
     with open("list_v.txt", "w") as f: f.writelines([f"file '{v}'\n" for v in video_segments])
     with open("list_a.txt", "w") as f: f.writelines([f"file '{a}'\n" for a in audio_segments])
     
@@ -489,7 +455,7 @@ async def main():
 
     final_video = f"etf_report_{FILE_SUFFIX}.mp4"
     if os.path.exists("bgm.mp3"):
-        subprocess.run(["ffmpeg", "-y", "-i", "temp_v.mp4", "-i", "temp_a.mp3", "-stream_loop", "-1", "-i", "bgm.mp3", "-filter_complex", "[1:a]volume=1.0[a1];[2:a]volume=0.15[a2];[a1][a2]amix=inputs=2:duration=first:dropout_transition=2[a]", "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", final_video], check=True)
+        subprocess.run(["ffmpeg", "-y", "-i", "temp_v.mp4", "-i", "temp_a.mp3", "-stream_loop", "-1", "-i", "bgm.mp3", "-filter_complex", "[1:a]volume=2.0[a1];[2:a]volume=0.15[a2];[a1][a2]amix=inputs=2:duration=first:dropout_transition=2[a]", "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", final_video], check=True)
     else:
         subprocess.run(["ffmpeg", "-y", "-i", "temp_v.mp4", "-i", "temp_a.mp3", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", final_video], check=True)
         
