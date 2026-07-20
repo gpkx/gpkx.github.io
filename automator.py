@@ -432,7 +432,7 @@ async def main():
             
             # 将滚动值改为正数 800，以确保真正执行“放大图表、减少K线”的操作
             for _ in range(5):
-                await page.mouse.wheel(0, 800)
+                await page.mouse.wheel(0, -800)
                 await page.wait_for_timeout(300)
             
             await page.keyboard.press("Shift+ArrowRight")
