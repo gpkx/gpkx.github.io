@@ -170,7 +170,7 @@ def add_watermark_to_chart(img_path, text):
                 break
         
         if font_path:
-            font = ImageFont.truetype(font_path, 100) # 这里可以调整字号大小
+            font = ImageFont.truetype(font_path, 1000) # 这里可以调整字号大小
         else:
             font = ImageFont.load_default() 
         
@@ -404,17 +404,10 @@ async def main():
             await page.goto(f"{TV_CHART_URL.rstrip('/')}/?symbol={symbol}&interval={tv_int}", wait_until="domcontentloaded")
             
             await page.wait_for_timeout(6000)
-            await page.keyboard.press("Alt+r")
             await page.wait_for_timeout(1000)
             await page.keyboard.press("Shift+ArrowRight")
             await page.wait_for_timeout(1000)
-
-            await page.mouse.move(1700, 540)
-            await page.mouse.click(1700, 540)
-            for _ in range(5): 
-                await page.mouse.wheel(0, 800)
-                await page.wait_for_timeout(300)
-            
+       
             await page.keyboard.press("Shift+ArrowRight")
             await page.wait_for_timeout(500)
 
