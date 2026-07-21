@@ -30,7 +30,7 @@ if IS_SATURDAY:
     TV_INTERVAL = "1W"
     TARGET_COL_IDX = -1 
 else:
-    TIME_LABEL = "日线收盘"
+    TIME_LABEL = "日线"
     REPORT_TYPE = "daily"
     TV_INTERVAL = "1D"
     TARGET_COL_IDX = TODAY_WEEKDAY + 1  
