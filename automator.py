@@ -56,7 +56,7 @@ def _reduce_ratio(w, h):
 VIDEO_ASPECT = _reduce_ratio(VIDEO_W, VIDEO_H)
 
 # 字幕字号与每行字数按视频尺寸缩放，避免竖屏溢出。
-_SUB_FONT_SIZE = max(6, round(12 * (1080 / VIDEO_H)))
+_SUB_FONT_SIZE = max(6, round(14 * (1080 / VIDEO_H)))
 _SUB_MAX_CHARS = max(10, int(40 * (VIDEO_W / 1920)))
 
 def get_tv_symbol(code):
