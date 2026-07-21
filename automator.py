@@ -41,7 +41,7 @@ COVER_SUBTITLE = f"({DATE_STR}-{TIME_LABEL})"
 
 FILE_SUFFIX = NOW.strftime("%Y%m%d_%H%M")
 
-PRIVATE_HOOK = "关注我，更新每日异动数据，欢迎评论！" 
+PRIVATE_HOOK = "关注我，每日更新异动数据，欢迎评论！" 
 OUTRO_TEXT = "本内容不构成投资建议，市场有风险，投资需谨慎。"
 
 # 视频统一规格（手机竖屏模式）
@@ -68,8 +68,8 @@ def parse_pct_to_float(val_str):
 def format_quant_voice(val_str):
     try:
         val = float(val_str.replace('%', '').replace('+', ''))
-        if val > 0: return f"ATR 强势拉升了{abs(val)}%"
-        elif val < 0: return f"ATR 回撤了{abs(val)}%"
+        if val > 0: return f"ATR拉升了{abs(val)}%"
+        elif val < 0: return f"ATR回撤了{abs(val)}%"
         return "ATR 处于零轴震荡区"
     except:
         return "暂无有效读数"
@@ -230,7 +230,7 @@ def add_watermark_to_chart(img_path, text):
         draw = ImageDraw.Draw(txt_layer)
 
         target_w = img.width * 0.2   # 约为原来的 1/5（原 88% → 18%）
-        max_h = img.height * 0.05      # 高度同步缩到约 1/5
+        max_h = img.height * 0.06      # 高度同步缩到约 1/5
 
         # 二分查找最大可用字号（同时受宽度与高度约束）
         lo, hi, best = 40, 6000, 40
@@ -428,8 +428,15 @@ async def main():
                 if code_match:
                     code = code_match.group(1)
                     name = re.sub(r'\d+', '', name_cell).strip()
-                    target_val = row[TARGET_COL_IDX]
-                    if '%' in target_val:
+                    # 以监控网页“最近有数据”的列为准：从右往左找第一个含 % 的单元格。
+                    # 这样即使今天还没开盘（今日列空），也能自动取到昨天/最近交易日的 K 线数据，
+                    # 避免因无数据而没有短视频和文章输出。
+                    target_val = ''
+                    for cell in reversed(row[1:]):
+                        if '%' in cell:
+                            target_val = cell
+                            break
+                    if target_val:
                         etf_list.append({"name": name, "code": code, "change": target_val})
             
             etf_list.sort(key=lambda x: abs(parse_pct_to_float(x['change'])), reverse=True)
