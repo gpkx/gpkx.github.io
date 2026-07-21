@@ -7,6 +7,7 @@ import json
 import re
 import time
 import asyncio
+import shutil
 import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -64,7 +65,7 @@ def clean_for_tts(text):
     if not text:
         return ""
     text = str(text)
-    text = re.sub(r"[\U00010000-\U0010ffff]", "", text)
+    text = re.sub(r'[\U00010000-\U0010ffff]', '', text)
     text = text.replace("*", "").replace("_", "").replace("#", "").replace("`", "")
     return text.strip()
 
@@ -289,18 +290,32 @@ body {{
 </body></html>
 """.strip()
 
-async def safe_generate_tts(text, filename, retries=3):
-    text = clean_for_tts(text)
-    for attempt in range(retries):
-        try:
-            communicate = edge_tts.Communicate(text, "zh-CN-YunxiNeural", rate="+5%")
-            await communicate.save(filename)
-            return True
-        except Exception:
-            if attempt < retries - 1:
-                await asyncio.sleep(3)
-            else:
-                raise
+def safe_generate_tts(text, filename, retries=3):
+    async def _run():
+        for attempt in range(retries):
+            try:
+                communicate = edge_tts.Communicate(clean_for_tts(text), "zh-CN-YunxiNeural", rate="+5%")
+                await communicate.save(filename)
+                return
+            except Exception:
+                if attempt < retries - 1:
+                    await asyncio.sleep(3)
+                else:
+                    raise
+    return _run()
+
+def get_audio_duration(file_path):
+    cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", file_path]
+    return float(subprocess.run(cmd, stdout=subprocess.PIPE, text=True).stdout.strip())
+
+def create_srt(text, duration, filename):
+    def fmt(seconds):
+        m, s = divmod(seconds, 60)
+        h, m = divmod(m, 60)
+        ms = int((s - int(s)) * 1000)
+        return f"{int(h):02d}:{int(m):02d}:{int(s):02d},{ms:03d}"
+    with open(filename, "w", encoding="utf-8") as f:
+        f.write(f"1\n00:00:00,000 --> {fmt(duration)}\n{clean_for_tts(text)}\n")
 
 def save_review_bundle(ai_script, etf_list):
     payload = {
@@ -315,6 +330,44 @@ def save_review_bundle(ai_script, etf_list):
     with open(OUT_DIR / f"review_bundle_{FILE_SUFFIX}.json", "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
+def create_static_video(img_path, output_video, duration, fps=VIDEO_FPS, srt_file=None):
+    vf = [f"scale={VIDEO_W}:{VIDEO_H}:force_original_aspect_ratio=decrease,pad={VIDEO_W}:{VIDEO_H}:(ow-iw)/2:(oh-ih)/2,setsar=1/1"]
+    if srt_file and os.path.exists(srt_file):
+        srt_path = srt_file.replace("\\", "\\\\").replace(":", "\\:")
+        vf.append(f"subtitles={srt_path}:force_style='FontName=Alibaba PuHuiTi,FontSize=38,PrimaryColour=&H00000000,Outline=0,Shadow=0,MarginV=30,Alignment=2'")
+    cmd = ["ffmpeg", "-y", "-loop", "1", "-i", img_path, "-t", str(duration), "-vf", ",".join(vf), "-c:v", "libx264", "-r", str(fps), "-pix_fmt", "yuv420p", output_video]
+    subprocess.run(cmd, check=True)
+
+def create_zoom_video(img_path, output_video, duration, fps=VIDEO_FPS, srt_file=None):
+    frames_dir = Path(f"temp_frames_{Path(img_path).stem}")
+    if frames_dir.exists():
+        shutil.rmtree(frames_dir)
+    frames_dir.mkdir(parents=True, exist_ok=True)
+
+    src = Image.open(img_path).convert("RGB")
+    base = ImageOps.pad(src, (VIDEO_W, VIDEO_H), method=Image.Resampling.LANCZOS, color=(255, 255, 255))
+    total_frames = max(1, int(duration * fps))
+
+    for i in range(total_frames):
+        t = i / max(total_frames - 1, 1)
+        zoom = 1.0 + (1.3 - 1.0) * t
+        cw = max(1, int(VIDEO_W / zoom))
+        ch = max(1, int(VIDEO_H / zoom))
+        cx = int(0.72 * VIDEO_W - cw / 2)
+        cy = int(0.50 * VIDEO_H - ch / 2)
+        cx = max(0, min(cx, VIDEO_W - cw))
+        cy = max(0, min(cy, VIDEO_H - ch))
+        frame = base.crop((cx, cy, cx + cw, cy + ch)).resize((VIDEO_W, VIDEO_H), Image.Resampling.LANCZOS)
+        frame.save(frames_dir / f"frame_{i:04d}.jpg", quality=92)
+
+    vf = [f"scale={VIDEO_W}:{VIDEO_H},setsar=1/1"]
+    if srt_file and os.path.exists(srt_file):
+        srt_path = srt_file.replace("\\", "\\\\").replace(":", "\\:")
+        vf.append(f"subtitles={srt_path}:force_style='FontName=Alibaba PuHuiTi,FontSize=38,PrimaryColour=&H00000000,Outline=0,Shadow=0,MarginV=30,Alignment=2'")
+    cmd = ["ffmpeg", "-y", "-framerate", str(fps), "-i", str(frames_dir / "frame_%04d.jpg"), "-vf", ",".join(vf), "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(fps), output_video]
+    subprocess.run(cmd, check=True)
+    shutil.rmtree(frames_dir)
+
 async def main():
     etf_list = await fetch_etf_rows()
     if not etf_list:
@@ -327,8 +380,46 @@ async def main():
         json.dump(ai_script, f, ensure_ascii=False, indent=2)
 
     cover_html = ensure_cover_html(ai_script, etf_list)
-    with open(OUT_DIR / f"cover_{FILE_SUFFIX}.html", "w", encoding="utf-8") as f:
+    cover_html_path = OUT_DIR / f"cover_{FILE_SUFFIX}.html"
+    cover_img_path = OUT_DIR / f"cover_{FILE_SUFFIX}.png"
+    with open(cover_html_path, "w", encoding="utf-8") as f:
         f.write(cover_html)
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page(viewport={"width": VIDEO_W, "height": VIDEO_H})
+        await page.set_content(cover_html)
+        await page.wait_for_timeout(1200)
+        await page.screenshot(path=str(cover_img_path))
+        await browser.close()
+
+    intro_txt = ai_script.get("video_intro", ai_script.get("summary", ""))
+    outro_txt = ai_script.get("video_outro", OUTRO_TTS_TEXT)
+    body_txt = "。".join([
+        ai_script.get("dy_script", ""),
+        ai_script.get("xhs_article", "")[:120],
+        ai_script.get("gzh_article", "")[:120],
+    ]).strip()
+
+    intro_mp3 = OUT_DIR / f"intro_{FILE_SUFFIX}.mp3"
+    body_mp3 = OUT_DIR / f"body_{FILE_SUFFIX}.mp3"
+    outro_mp3 = OUT_DIR / f"outro_{FILE_SUFFIX}.mp3"
+
+    await safe_generate_tts(intro_txt, str(intro_mp3))
+    await safe_generate_tts(body_txt, str(body_mp3))
+    await safe_generate_tts(outro_txt, str(outro_mp3))
+
+    intro_dur = get_audio_duration(str(intro_mp3))
+    body_dur = get_audio_duration(str(body_mp3))
+    outro_dur = get_audio_duration(str(outro_mp3))
+
+    create_srt(intro_txt, intro_dur, str(OUT_DIR / f"intro_{FILE_SUFFIX}.srt"))
+    create_srt(body_txt, body_dur, str(OUT_DIR / f"body_{FILE_SUFFIX}.srt"))
+    create_srt(outro_txt, outro_dur, str(OUT_DIR / f"outro_{FILE_SUFFIX}.srt"))
+
+    create_static_video(str(cover_img_path), str(OUT_DIR / f"seg_cover_{FILE_SUFFIX}.mp4"), intro_dur, srt_file=str(OUT_DIR / f"intro_{FILE_SUFFIX}.srt"))
+    create_static_video(str(cover_img_path), str(OUT_DIR / f"seg_body_{FILE_SUFFIX}.mp4"), body_dur, srt_file=str(OUT_DIR / f"body_{FILE_SUFFIX}.srt"))
+    create_static_video(str(cover_img_path), str(OUT_DIR / f"seg_outro_{FILE_SUFFIX}.mp4"), outro_dur, srt_file=str(OUT_DIR / f"outro_{FILE_SUFFIX}.srt"))
 
     with open(OUT_DIR / f"publish_copy_{FILE_SUFFIX}.txt", "w", encoding="utf-8") as f:
         f.write(
