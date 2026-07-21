@@ -44,9 +44,16 @@ FILE_SUFFIX = NOW.strftime("%Y%m%d_%H%M")
 PRIVATE_HOOK = "关注我，更新每日异动数据，欢迎评论！" 
 OUTRO_TEXT = "本内容不构成投资建议，市场有风险，投资需谨慎。"
 
-# 视频统一规格
-VIDEO_W, VIDEO_H = 1920, 1080
+# 视频统一规格（手机竖屏模式）
+VIDEO_W, VIDEO_H = 1080, 1920
 VIDEO_FPS = 30
+
+# 由宽高自动推导显示比例（竖屏 1080:1920 → 9:16），避免硬编码导致预览比例失真
+import math as _math
+def _reduce_ratio(w, h):
+    g = _math.gcd(w, h)
+    return f"{w // g}:{h // g}"
+VIDEO_ASPECT = _reduce_ratio(VIDEO_W, VIDEO_H)
 
 def get_tv_symbol(code):
     if code.startswith(('5', '6')): return f"SSE:{code}"
@@ -124,29 +131,13 @@ def _sar_filter():
 # 图像变换工具
 # ------------------------------------------
 def _fit_to_canvas(src, size=(VIDEO_W, VIDEO_H), color=(255, 255, 255)):
-    """等比放入 1920x1080 画布（letterbox），保证所有图表比例统一。"""
+    """等比放入 1080x1920 竖屏画布（letterbox），保证所有图表比例统一。"""
     return ImageOps.pad(src.convert('RGB'), size, method=Image.Resampling.LANCZOS, color=color)
 
-# 需求4：裁掉图表顶部那一行（邮箱水印 hahagw2023@gmail.com + TradingView logo）
-HEADER_CROP_RATIO = 0.09  # 裁掉原图顶部 9%（顶部 logo/邮箱所在区域），不够可调大
-
-def _remove_chart_header(src, header_ratio=HEADER_CROP_RATIO):
-    """
-    把图表最上一行文字（邮箱水印 + TradingView logo）剪掉不要。
-    做法：直接裁掉原图顶部 header_ratio 比例，再把剩余部分等比放入 1920x1080 画布。
-    """
-    img = src.convert('RGB')
-    w, h = img.size
-    top_cut = int(h * header_ratio)
-    if top_cut > 0:
-        img = img.crop((0, top_cut, w, h))
-    return _fit_to_canvas(img, (VIDEO_W, VIDEO_H))
-
 def _prepare_chart_image_file(img_path):
-    """预处理图表：裁掉顶部 logo/邮箱那一行，等比放入 1920x1080 画布，原地覆盖保存。"""
+    """预处理图表：等比放入 1080x1920 竖屏画布，原地覆盖保存。"""
     src = Image.open(img_path).convert('RGB')
-    clean = _remove_chart_header(src)
-    clean.save(img_path)
+    _fit_to_canvas(src, (VIDEO_W, VIDEO_H)).save(img_path)
 
 def create_zoom_video(img_path, output_video, duration, fps=VIDEO_FPS, zoom_type='main', srt_file=None):
     frames_dir = f"temp_frames_{os.path.basename(img_path).split('.')[0]}"
@@ -154,7 +145,7 @@ def create_zoom_video(img_path, output_video, duration, fps=VIDEO_FPS, zoom_type
     os.makedirs(frames_dir)
 
     src = Image.open(img_path).convert('RGB')
-    # 图表已在 main 中预处理（裁掉顶部 logo/邮箱 + 加水印），这里只做等比放入画布
+    # 图表已在 main 中预处理（竖屏 letterbox + 加水印），这里只做等比放入画布
     base = _fit_to_canvas(src, (VIDEO_W, VIDEO_H))
 
     W, H = VIDEO_W, VIDEO_H
@@ -165,7 +156,7 @@ def create_zoom_video(img_path, output_video, duration, fps=VIDEO_FPS, zoom_type
         LATEST_KL_X = 0.72 * W
         LATEST_KL_Y = 0.50 * H
         START_ZOOM = 1.0
-        END_ZOOM = 1.2   # 需求3 修订：只放大 20%
+        END_ZOOM = 1.3   # 需求3 修订：只放大 30%
 
     for i in range(total_frames):
         if zoom_type == 'tv':
@@ -238,7 +229,7 @@ def add_watermark_to_chart(img_path, text):
         txt_layer = Image.new('RGBA', img.size, (255, 255, 255, 0))
         draw = ImageDraw.Draw(txt_layer)
 
-        target_w = img.width * 0.18   # 约为原来的 1/5（原 88% → 18%）
+        target_w = img.width * 0.2   # 约为原来的 1/5（原 88% → 18%）
         max_h = img.height * 0.05      # 高度同步缩到约 1/5
 
         # 二分查找最大可用字号（同时受宽度与高度约束）
@@ -263,7 +254,7 @@ def add_watermark_to_chart(img_path, text):
         bbox = font.getbbox(text)
         text_w = bbox[2] - bbox[0]
         x = (img.width - text_w) / 2
-        y = int(img.height * 0.10)   # 顶部偏下，避开拉近裁切区域
+        y = int(img.height * 0.13)   # 顶部偏下，避开 30% 拉近裁切区域
 
         # 黑色字体 + 50% 透明度（alpha=128），不加描边
         draw.text((x, y), text, font=font, fill=(0, 0, 0, 128))
@@ -316,7 +307,7 @@ def call_ai_director(etf_list, time_label, report_type):
         - "xhs_article": 小红书正文。
         - "gzh_title": 公众号标题。
         - "gzh_article": 公众号正文。
-        - "cover_html": HTML5+CSS。1920x1080（宽屏）。要求：现代金融风，浅色高级渐变背景。标题【{COVER_TITLE}】，副标题【{COVER_SUBTITLE}】。🚨必须在副标题下方，用醒目、美观的卡片或列表，把以上 4只ETF 的名称和涨跌幅数据排版渲染出来！涨跌幅染色规则（A股惯例，必须严格遵守）：上涨（正数、带+号）必须用红色字体，下跌（负数、带-号）必须用绿色字体；请根据每只 ETF 涨跌幅的正负号逐一染色。所有字体设置为 'Alibaba PuHuiTi', 'Microsoft YaHei', sans-serif。居中对齐。
+        - "cover_html": HTML5+CSS。1080x1920（手机竖屏）。要求：现代金融风，浅色高级渐变背景，适配竖屏布局（内容纵向排列）。标题【{COVER_TITLE}】，副标题【{COVER_SUBTITLE}】。🚨必须在副标题下方，用醒目、美观的卡片或列表，把以上 4只ETF 的名称和涨跌幅数据排版渲染出来！涨跌幅染色规则（A股惯例，必须严格遵守）：上涨（正数、带+号）必须用红色字体，下跌（负数、带-号）必须用绿色字体；请根据每只 ETF 涨跌幅的正负号逐一染色。所有字体设置为 'Alibaba PuHuiTi', 'Microsoft YaHei', sans-serif。居中对齐。
         """
 
     payload = {
@@ -373,11 +364,11 @@ def mux_final_video(temp_v, temp_a, bgm_path, final_video):
     """
     需求1：生成的视频默认宽度与封面宽度不一致（Telegram 预览比例失真）。
     根因：concat 用 -c:v copy 会原样保留各片段的 SAR/DAR 元数据。
-    修复：最终统一重编码，强制 scale=1920:1080, setsar=1/1, aspect=16:9,
-          pix_fmt=yuv420p, +faststart，保证预览与封面（1920x1080）完全一致。
+    修复：最终统一重编码，强制 scale={VIDEO_W}x{VIDEO_H}, setsar=1/1, aspect={VIDEO_ASPECT},
+          pix_fmt=yuv420p, +faststart，保证预览与封面完全一致。
     """
     common_v_enc = ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(VIDEO_FPS),
-                    "-aspect", "16:9", "-movflags", "+faststart"]
+                    "-aspect", VIDEO_ASPECT, "-movflags", "+faststart"]
     audio_enc = ["-c:a", "aac", "-b:a", "192k", "-shortest"]
 
     if bgm_path and os.path.exists(bgm_path):
