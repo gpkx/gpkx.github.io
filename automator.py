@@ -6,7 +6,7 @@ import subprocess
 import re
 import time
 import shutil
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 from playwright.async_api import async_playwright
 import edge_tts
@@ -41,7 +41,7 @@ COVER_SUBTITLE = f"({DATE_STR}-{TIME_LABEL})"
 
 FILE_SUFFIX = NOW.strftime("%Y%m%d_%H%M")
 
-PRIVATE_HOOK = "关注我，每日更新异动数据，欢迎评论！" 
+PRIVATE_HOOK = "关注我，更新每日异动数据，欢迎评论！" 
 OUTRO_TEXT = "本内容不构成投资建议，市场有风险，投资需谨慎。"
 
 # 视频统一规格（手机竖屏模式）
@@ -65,11 +65,20 @@ def parse_pct_to_float(val_str):
     except:
         return 0.0
 
+def _resolve_col_date(day):
+    """根据表头里的“日”（如 20），解析出它所属的 YYYY-MM-DD。
+    在今天前后 ±7 天范围内查找 day-of-month 匹配的日期，自动处理跨月。"""
+    for delta in range(-7, 8):
+        cand = NOW + timedelta(days=delta)
+        if cand.day == day:
+            return cand.date().isoformat()
+    return None
+
 def format_quant_voice(val_str):
     try:
         val = float(val_str.replace('%', '').replace('+', ''))
-        if val > 0: return f"ATR拉升了{abs(val)}%"
-        elif val < 0: return f"ATR回撤了{abs(val)}%"
+        if val > 0: return f"ATR 强势拉升了{abs(val)}%"
+        elif val < 0: return f"ATR 回撤了{abs(val)}%"
         return "ATR 处于零轴震荡区"
     except:
         return "暂无有效读数"
@@ -229,8 +238,8 @@ def add_watermark_to_chart(img_path, text):
         txt_layer = Image.new('RGBA', img.size, (255, 255, 255, 0))
         draw = ImageDraw.Draw(txt_layer)
 
-        target_w = img.width * 0.2   # 约为原来的 1/5（原 88% → 18%）
-        max_h = img.height * 0.06      # 高度同步缩到约 1/5
+        target_w = img.width * 0.18   # 约为原来的 1/5（原 88% → 18%）
+        max_h = img.height * 0.05      # 高度同步缩到约 1/5
 
         # 二分查找最大可用字号（同时受宽度与高度约束）
         lo, hi, best = 40, 6000, 40
@@ -422,22 +431,46 @@ async def main():
                 }).filter(row => row.length >= 7); 
             }''')
 
+            # 解析表头：建立“日列 -> 日期”映射，并识别“周线”列
+            header = next((r for r in row_data if any(('周线' in (c or '')) or ('周一' in (c or '')) or ('周日' in (c or '')) for c in r)), [])
+            weekly_col_idx = None
+            col_dates = {}
+            for idx, h in enumerate(header):
+                h_str = h or ''
+                if '周线' in h_str:
+                    weekly_col_idx = idx
+                    continue
+                m = re.search(r'(\d{1,2})\s*日', h_str)
+                if m:
+                    col_dates[idx] = _resolve_col_date(int(m.group(1)))
+
             for row in row_data:
                 name_cell = row[0]
                 code_match = re.search(r'\b(5\d{5}|1\d{5})\b', name_cell)
-                if code_match:
-                    code = code_match.group(1)
-                    name = re.sub(r'\d+', '', name_cell).strip()
-                    # 以监控网页“最近有数据”的列为准：从右往左找第一个含 % 的单元格。
-                    # 这样即使今天还没开盘（今日列空），也能自动取到昨天/最近交易日的 K 线数据，
-                    # 避免因无数据而没有短视频和文章输出。
-                    target_val = ''
-                    for cell in reversed(row[1:]):
+                if not code_match:
+                    continue
+                code = code_match.group(1)
+                name = re.sub(r'\d+', '', name_cell).strip()
+                target_val = ''
+                target_date = None
+                if IS_SATURDAY and weekly_col_idx is not None:
+                    # 周线模式：取周线列
+                    if weekly_col_idx < len(row) and '%' in row[weekly_col_idx]:
+                        target_val = row[weekly_col_idx]
+                        target_date = None  # 周线用今天(周六)日期，worker fallback
+                else:
+                    # 日线模式：只在“日列”里从右往左找最近有数据的列（排除周线列）。
+                    # 这样今天还没开盘时自动取最近交易日数据，且不会把周线误当作日线写进今天。
+                    for idx in range(len(row) - 1, 0, -1):
+                        if idx == weekly_col_idx:
+                            continue
+                        cell = row[idx] if idx < len(row) else ''
                         if '%' in cell:
                             target_val = cell
+                            target_date = col_dates.get(idx)
                             break
-                    if target_val:
-                        etf_list.append({"name": name, "code": code, "change": target_val})
+                if target_val:
+                    etf_list.append({"name": name, "code": code, "change": target_val, "data_date": target_date})
             
             etf_list.sort(key=lambda x: abs(parse_pct_to_float(x['change'])), reverse=True)
             
@@ -446,14 +479,28 @@ async def main():
                 cf_token = os.getenv("CF_API_TOKEN", "").strip()
                 
                 if cf_url and cf_token:
+                    cf_headers = {"Content-Type": "application/json", "Authorization": f"Bearer {cf_token}"}
+                    # 若今天列空（未开盘）、用的是旧交易日的数据，先清掉今天可能残留的脏数据，
+                    # 避免网页把旧数据当成“今天”展示。
+                    if not IS_SATURDAY and etf_list:
+                        today_iso = NOW.date().isoformat()
+                        using_stale = all(e.get("data_date") and e["data_date"] != today_iso for e in etf_list)
+                        if using_stale:
+                            try:
+                                requests.delete(f"{cf_url}?date={today_iso}", headers=cf_headers, timeout=30)
+                                print(f"🧹 已清理今天({today_iso})的残留旧数据")
+                            except Exception as e:
+                                print(f"⚠️ 清理今天数据失败: {e}")
                     data_list = []
                     for etf in etf_list:
                         item = {"etf_code": etf["code"], "etf_name": etf["name"]}
+                        # 关键：用数据所属的真实日期入库，避免把旧数据写成“今天”
+                        if etf.get("data_date"):
+                            item["date"] = etf["data_date"]
                         if IS_SATURDAY: item["week_status"] = etf["change"]
                         else: item["day_status"] = etf["change"]
                         data_list.append(item)
                     
-                    cf_headers = {"Content-Type": "application/json", "Authorization": f"Bearer {cf_token}"}
                     try:
                         cf_response = requests.post(cf_url, json=data_list, headers=cf_headers, timeout=30)
                         print(f"☁️ Cloudflare 同步结果: {cf_response.text}")
