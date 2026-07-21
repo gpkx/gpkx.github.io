@@ -36,13 +36,13 @@ else:
     TARGET_COL_IDX = TODAY_WEEKDAY + 1  
 
 DATE_STR = NOW.strftime("%m月%d日")
-COVER_TITLE = "本周ETF主力资金异动" if IS_SATURDAY else "今日ETF主力异动Top4"
+COVER_TITLE = "本周ETF异动Top4" if IS_SATURDAY else "今日ETF异动Top4"
 COVER_SUBTITLE = f"({DATE_STR}-{TIME_LABEL})"
 
 FILE_SUFFIX = NOW.strftime("%Y%m%d_%H%M")
 
-PRIVATE_HOOK = "关注我，更新每日异动数据，欢迎评论！" 
-OUTRO_TEXT = "本内容不构成投资建议，市场有风险，投资需谨慎。"
+PRIVATE_HOOK = "关注我，每日更新异动ETF，欢迎评论！" 
+OUTRO_TEXT = "本内容不构成投资建议;市场有风险，投资需谨慎。"
 
 # 视频统一规格（手机竖屏模式）
 VIDEO_W, VIDEO_H = 1080, 1920
@@ -83,8 +83,8 @@ def _resolve_col_date(day):
 def format_quant_voice(val_str):
     try:
         val = float(val_str.replace('%', '').replace('+', ''))
-        if val > 0: return f"ATR 强势拉升了{abs(val)}%"
-        elif val < 0: return f"ATR 回撤了{abs(val)}%"
+        if val > 0: return f"ATR拉升了{abs(val)}%"
+        elif val < 0: return f"ATR回撤了{abs(val)}%"
         return "ATR 处于零轴震荡区"
     except:
         return "暂无有效读数"
@@ -237,15 +237,15 @@ def _load_cjk_font(size):
 
 def add_watermark_to_chart(img_path, text):
     """
-    需求2 修订：水印缩小到原来的 1/5，不要描边，黑色字体，透明度 50%。
+    需求2 修订：水印缩小到原来的 1/4，不要描边，黑色字体，透明度 50%。
     """
     try:
         img = Image.open(img_path).convert("RGBA")
         txt_layer = Image.new('RGBA', img.size, (255, 255, 255, 0))
         draw = ImageDraw.Draw(txt_layer)
 
-        target_w = img.width * 0.3   # 约为原来的 1/5（原 88% → 18%）
-        max_h = img.height * 0.06      # 高度同步缩到约 1/5
+        target_w = img.width * 0.3   # 约为原来的 1/4（原 88% → 30%）
+        max_h = img.height * 0.06      # 高度同步缩到约 1/4
 
         # 二分查找最大可用字号（同时受宽度与高度约束）
         lo, hi, best = 40, 6000, 40
