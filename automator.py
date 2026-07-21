@@ -41,8 +41,8 @@ COVER_SUBTITLE = f"({DATE_STR}-{TIME_LABEL})"
 
 FILE_SUFFIX = NOW.strftime("%Y%m%d_%H%M")
 
-PRIVATE_HOOK = "关注我，每日更新异动ETF，欢迎评论！" 
-OUTRO_TEXT = "本内容不构成投资建议;市场有风险，投资需谨慎。"
+# 整合后的片尾统一语音文案
+OUTRO_TTS_TEXT = "本内容不构成投资建议！"
 
 # 视频统一规格（手机竖屏模式）
 VIDEO_W, VIDEO_H = 1080, 1920
@@ -56,8 +56,6 @@ def _reduce_ratio(w, h):
 VIDEO_ASPECT = _reduce_ratio(VIDEO_W, VIDEO_H)
 
 # 字幕字号与每行字数按视频尺寸缩放，避免竖屏溢出。
-# 参考基准：横屏 1920x1080 下 FontSize=12、每行40字 刚好不溢出。
-# 字幕实际渲染大小 ∝ FontSize × 视频高度，故字号按高度反比缩放；每行字数按宽度缩放。
 _SUB_FONT_SIZE = max(6, round(12 * (1080 / VIDEO_H)))
 _SUB_MAX_CHARS = max(10, int(40 * (VIDEO_W / 1920)))
 
@@ -72,8 +70,7 @@ def parse_pct_to_float(val_str):
         return 0.0
 
 def _resolve_col_date(day):
-    """根据表头里的“日”（如 20），解析出它所属的 YYYY-MM-DD。
-    在今天前后 ±7 天范围内查找 day-of-month 匹配的日期，自动处理跨月。"""
+    """根据表头里的“日”（如 20），解析出它所属的 YYYY-MM-DD。"""
     for delta in range(-7, 8):
         cand = NOW + timedelta(days=delta)
         if cand.day == day:
@@ -125,7 +122,7 @@ def create_srt(text, duration, filename):
     end_time = format_time(duration)
     clean_text = text.replace(' ETF ', 'ETF').replace(' ATR ', 'ATR')
     
-    max_chars_per_line = _SUB_MAX_CHARS  # 按视频宽度缩放，避免竖屏每行字数过多溢出
+    max_chars_per_line = _SUB_MAX_CHARS 
     lines = [clean_text[i:i+max_chars_per_line] for i in range(0, len(clean_text), max_chars_per_line)]
     text_block = "\n".join(lines)
     
@@ -138,7 +135,6 @@ def get_subtitle_filter(srt_file):
         return f"subtitles={srt_path}:force_style='FontName=Alibaba PuHuiTi,FontSize={_SUB_FONT_SIZE},PrimaryColour=&H00000000,Outline=0,Shadow=0,MarginV=30,Alignment=2'"
     return ""
 
-# 统一的视频元数据滤镜：强制 1920x1080 / SAR 1:1，避免 Telegram 预览图比例与封面不一致
 def _sar_filter():
     return f"scale={VIDEO_W}:{VIDEO_H},setsar=1/1"
 
@@ -146,11 +142,9 @@ def _sar_filter():
 # 图像变换工具
 # ------------------------------------------
 def _fit_to_canvas(src, size=(VIDEO_W, VIDEO_H), color=(255, 255, 255)):
-    """等比放入 1080x1920 竖屏画布（letterbox），保证所有图表比例统一。"""
     return ImageOps.pad(src.convert('RGB'), size, method=Image.Resampling.LANCZOS, color=color)
 
 def _prepare_chart_image_file(img_path):
-    """预处理图表：等比放入 1080x1920 竖屏画布，原地覆盖保存。"""
     src = Image.open(img_path).convert('RGB')
     _fit_to_canvas(src, (VIDEO_W, VIDEO_H)).save(img_path)
 
@@ -160,18 +154,16 @@ def create_zoom_video(img_path, output_video, duration, fps=VIDEO_FPS, zoom_type
     os.makedirs(frames_dir)
 
     src = Image.open(img_path).convert('RGB')
-    # 图表已在 main 中预处理（竖屏 letterbox + 加水印），这里只做等比放入画布
     base = _fit_to_canvas(src, (VIDEO_W, VIDEO_H))
 
     W, H = VIDEO_W, VIDEO_H
     total_frames = max(1, int(duration * fps))
 
     if zoom_type == 'tv':
-        # 需求3：拉近放大始终以最新 K 线为中心（TradingView 右侧为价格刻度，最新 K 线约在 0.72 处）
         LATEST_KL_X = 0.72 * W
         LATEST_KL_Y = 0.50 * H
         START_ZOOM = 1.0
-        END_ZOOM = 1.3   # 需求3 修订：只放大 30%
+        END_ZOOM = 1.3   
 
     for i in range(total_frames):
         if zoom_type == 'tv':
@@ -179,10 +171,8 @@ def create_zoom_video(img_path, output_video, duration, fps=VIDEO_FPS, zoom_type
             zoom = START_ZOOM + (END_ZOOM - START_ZOOM) * t
             cw = max(1, int(W / zoom))
             ch = max(1, int(H / zoom))
-            # 以最新 K 线为中心
             cx = int(LATEST_KL_X - cw / 2)
             cy = int(LATEST_KL_Y - ch / 2)
-            # 边界约束，避免越界
             cx = max(0, min(cx, W - cw))
             cy = max(0, min(cy, H - ch))
         else:
@@ -192,7 +182,6 @@ def create_zoom_video(img_path, output_video, duration, fps=VIDEO_FPS, zoom_type
         frame = base.crop(box).resize((W, H), Image.Resampling.LANCZOS)
         frame.save(f"{frames_dir}/frame_{i:04d}.jpg", quality=92)
 
-    # 强制帧序列像素为 1920x1080、SAR 1:1
     vf_filters = [_sar_filter()]
     sub_filter = get_subtitle_filter(srt_file)
     if sub_filter: vf_filters.append(sub_filter)
@@ -215,7 +204,6 @@ def create_static_video(img_path, output_video, duration, fps=VIDEO_FPS, srt_fil
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 def _load_cjk_font(size):
-    """依次尝试 Windows / macOS / Linux 常见中文字体，避免掉到默认小字体。"""
     candidates = [
         "C:/Windows/Fonts/msyh.ttc",
         "C:/Windows/Fonts/msyhbd.ttc",
@@ -236,18 +224,14 @@ def _load_cjk_font(size):
     return None
 
 def add_watermark_to_chart(img_path, text):
-    """
-    需求2 修订：水印缩小到原来的 1/4，不要描边，黑色字体，透明度 50%。
-    """
     try:
         img = Image.open(img_path).convert("RGBA")
         txt_layer = Image.new('RGBA', img.size, (255, 255, 255, 0))
         draw = ImageDraw.Draw(txt_layer)
 
-        target_w = img.width * 0.3   # 约为原来的 1/4（原 88% → 30%）
-        max_h = img.height * 0.06      # 高度同步缩到约 1/4
+        target_w = img.width * 0.3   
+        max_h = img.height * 0.06      
 
-        # 二分查找最大可用字号（同时受宽度与高度约束）
         lo, hi, best = 40, 6000, 40
         while lo <= hi:
             mid = (lo + hi) // 2
@@ -269,9 +253,8 @@ def add_watermark_to_chart(img_path, text):
         bbox = font.getbbox(text)
         text_w = bbox[2] - bbox[0]
         x = (img.width - text_w) / 2
-        y = int(img.height * 0.13)   # 顶部偏下，避开 30% 拉近裁切区域
+        y = int(img.height * 0.13)   
 
-        # 黑色字体 + 50% 透明度（alpha=128），不加描边
         draw.text((x, y), text, font=font, fill=(0, 0, 0, 128))
 
         out = Image.alpha_composite(img, txt_layer).convert("RGB")
@@ -352,7 +335,7 @@ def send_telegram(text, video_path=None, photos=None):
     if not bot_token or not chat_id:
         return
         
-    tg_host = "https://api.telegram.org/bot"
+    tg_host = "[https://api.telegram.org/bot](https://api.telegram.org/bot)"
     try:
         requests.post(f"{tg_host}{bot_token}/sendMessage", data={'chat_id': chat_id, 'text': text}).raise_for_status()
         if video_path and os.path.exists(video_path):
@@ -376,12 +359,6 @@ def send_telegram(text, video_path=None, photos=None):
 # 3. 最终合成：统一重编码，修复 Telegram 预览比例问题
 # ==========================================
 def mux_final_video(temp_v, temp_a, bgm_path, final_video):
-    """
-    需求1：生成的视频默认宽度与封面宽度不一致（Telegram 预览比例失真）。
-    根因：concat 用 -c:v copy 会原样保留各片段的 SAR/DAR 元数据。
-    修复：最终统一重编码，强制 scale={VIDEO_W}x{VIDEO_H}, setsar=1/1, aspect={VIDEO_ASPECT},
-          pix_fmt=yuv420p, +faststart，保证预览与封面完全一致。
-    """
     common_v_enc = ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(VIDEO_FPS),
                     "-aspect", VIDEO_ASPECT, "-movflags", "+faststart"]
     audio_enc = ["-c:a", "aac", "-b:a", "192k", "-shortest"]
@@ -437,7 +414,6 @@ async def main():
                 }).filter(row => row.length >= 7); 
             }''')
 
-            # 解析表头：建立“日列 -> 日期”映射，并识别“周线”列
             header = next((r for r in row_data if any(('周线' in (c or '')) or ('周一' in (c or '')) or ('周日' in (c or '')) for c in r)), [])
             weekly_col_idx = None
             col_dates = {}
@@ -460,13 +436,10 @@ async def main():
                 target_val = ''
                 target_date = None
                 if IS_SATURDAY and weekly_col_idx is not None:
-                    # 周线模式：取周线列
                     if weekly_col_idx < len(row) and '%' in row[weekly_col_idx]:
                         target_val = row[weekly_col_idx]
-                        target_date = None  # 周线用今天(周六)日期，worker fallback
+                        target_date = None  
                 else:
-                    # 日线模式：只在“日列”里从右往左找最近有数据的列（排除周线列）。
-                    # 这样今天还没开盘时自动取最近交易日数据，且不会把周线误当作日线写进今天。
                     for idx in range(len(row) - 1, 0, -1):
                         if idx == weekly_col_idx:
                             continue
@@ -486,8 +459,6 @@ async def main():
                 
                 if cf_url and cf_token:
                     cf_headers = {"Content-Type": "application/json", "Authorization": f"Bearer {cf_token}"}
-                    # 若今天列空（未开盘）、用的是旧交易日的数据，先清掉今天可能残留的脏数据，
-                    # 避免网页把旧数据当成“今天”展示。
                     if not IS_SATURDAY and etf_list:
                         today_iso = NOW.date().isoformat()
                         using_stale = all(e.get("data_date") and e["data_date"] != today_iso for e in etf_list)
@@ -500,7 +471,6 @@ async def main():
                     data_list = []
                     for etf in etf_list:
                         item = {"etf_code": etf["code"], "etf_name": etf["name"]}
-                        # 关键：用数据所属的真实日期入库，避免把旧数据写成“今天”
                         if etf.get("data_date"):
                             item["date"] = etf["data_date"]
                         if IS_SATURDAY: item["week_status"] = etf["change"]
@@ -531,39 +501,45 @@ async def main():
         await page.wait_for_timeout(2000) 
         await page.screenshot(path="cover_image.png")
 
-        hook_html = """
+        # ----------------------------------------------------
+        # 核心修改点：钩子(Hook)与免责声明(Disclaimer)画面合并
+        # ----------------------------------------------------
+        outro_html = """
         <!DOCTYPE html><html><head><meta charset="UTF-8"><style>
             body { background: linear-gradient(135deg, #f8fafc, #e2e8f0); display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: 'Alibaba PuHuiTi', 'Microsoft YaHei'; height: 100vh; margin: 0; text-align: center; }
-            .card { background: rgba(255, 255, 255, 0.8); padding: 80px 100px; border-radius: 40px; box-shadow: 0 10px 40px rgba(0,0,0,0.05); }
-            h1 { color: #1e293b; font-size: 70px; margin-bottom: 50px; font-weight: bold; }
-            p { font-size: 45px; line-height: 2.2; color: #475569; }
-            .highlight { background: #3b82f6; color: white; padding: 15px 35px; border-radius: 20px; font-weight: bold;}
+            .hook-box { background: rgba(255, 255, 255, 0.9); padding: 80px 80px; border-radius: 40px; box-shadow: 0 10px 40px rgba(0,0,0,0.05); margin-bottom: 40px; width: 75%; }
+            .hook-title { color: #1e293b; font-size: 65px; font-weight: bold; margin-bottom: 40px; }
+            .hook-text { font-size: 50px; line-height: 1.8; color: #475569; }
+            .highlight { background: #3b82f6; color: white; padding: 15px 30px; border-radius: 20px; font-weight: bold; display: inline-block; margin-top: 30px;}
+            .divider { width: 70%; border-top: 4px dashed #cbd5e1; margin: 50px 0; }
+            .disclaimer-box { width: 80%; }
+            .disclaimer-title { color: #64748b; font-size: 55px; margin-bottom: 30px; font-weight: bold; letter-spacing: 8px; }
+            .disclaimer-text { font-size: 40px; line-height: 1.8; color: #94a3b8; }
         </style></head><body>
-            <div class="card">
-                <h1>获取每日主力监控图表</h1>
-                <p>完整主力资金异动数据单<br><br><span class="highlight">欢迎在评论区交流探讨</span><br><br>把握市场核心资金动向</p>
+            <div class="hook-box">
+                <div class="hook-title">每日4只外，还有40+</div>
+                <div class="hook-text">
+                    完整ETF异动名单<br>
+                    <span class="highlight">关注+评论[名单]领取</span>
+                </div>
+            </div>
+            
+            <div class="divider"></div>
+            
+            <div class="disclaimer-box">
+                <div class="disclaimer-title">免责声明</div>
+                <div class="disclaimer-text">
+                    数据均由特定指标生成<br>
+                    不代表真实涨跌幅<br>
+                    本内容不构成投资建议<br>
+                    市场有风险 · 投资需谨慎
+                </div>
             </div>
         </body></html>
         """
-        await page.set_content(hook_html)
+        await page.set_content(outro_html)
         await page.wait_for_timeout(1000)
-        await page.screenshot(path="hook.png")
-
-        disclaimer_html = """
-        <!DOCTYPE html><html><head><meta charset="UTF-8"><style>
-            body { background: #f8fafc; display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: 'Alibaba PuHuiTi', 'Microsoft YaHei'; height: 100vh; margin: 0; padding: 0 40px; text-align: center; border: 30px solid #f1f5f9; box-sizing: border-box; }
-            h1 { color: #0f172a; font-size: 75px; margin-bottom: 60px; font-weight: bold; letter-spacing: 10px; }
-            p { font-size: 40px; line-height: 2; color: #475569; }
-            .footer { margin-top: 80px; font-size: 30px; color: #94a3b8; border-top: 2px solid #e2e8f0; padding-top: 40px; width: 60%; }
-        </style></head><body>
-            <h1>免责声明</h1>
-            <p>本视频内所有数据、图表及指标读数<br>均基于AI大数据模型客观记录生成<br><br>不代表标的真实涨跌幅<br>亦不构成任何投资建议</p>
-            <div class="footer">市场有风险 · 投资需谨慎</div>
-        </body></html>
-        """
-        await page.set_content(disclaimer_html)
-        await page.wait_for_timeout(1000)
-        await page.screenshot(path="disclaimer.png")
+        await page.screenshot(path="outro.png")
 
         print("🌐 正在使用快捷键原生下载 TV 图表...")
         for i, etf in enumerate(etf_list):
@@ -572,9 +548,6 @@ async def main():
             await page.goto(f"{TV_CHART_URL.rstrip('/')}/?symbol={symbol}&interval={tv_int}", wait_until="domcontentloaded")
             
             await page.wait_for_timeout(6000)
-            # 不再按 Shift+ArrowRight：该键会把图表向右(未来方向)平移，
-            # 导致最新 K 线被推向左侧、右侧出现大段空白。让图表以保存布局的默认位置加载，
-            # 最新 K 线自然停在最右侧。
             await page.wait_for_timeout(1500)
 
             img_output = f"ss_etf_{i}.png"
@@ -589,7 +562,6 @@ async def main():
                 print(f"  ⚠️ 原生下载失败，触发后备截图方案: {e}")
                 await page.screenshot(path=img_output)
             
-            # 需求4：先裁掉顶部 logo/邮箱那一行，再加水印
             _prepare_chart_image_file(img_output)
             add_watermark_to_chart(img_output, f"{etf['name']} {etf['code']}")
             
@@ -626,18 +598,14 @@ async def main():
         create_zoom_video(f"ss_etf_{i}.png", video_name, dur_etf, zoom_type='tv', srt_file=srt_name)
         video_segments.append(video_name)
 
-    await safe_generate_tts(PRIVATE_HOOK, "seg_audio_hook.mp3")
-    dur_hook = get_audio_duration("seg_audio_hook.mp3")
-    create_srt(PRIVATE_HOOK, dur_hook, "sub_hook.srt")
-    audio_segments.append("seg_audio_hook.mp3")
-    create_static_video("hook.png", "seg_video_hook.mp4", dur_hook, srt_file="sub_hook.srt")
-    video_segments.append("seg_video_hook.mp4")
-
-    await safe_generate_tts(OUTRO_TEXT, "seg_audio_outro.mp3")
+    # ----------------------------------------------------
+    # 核心修改点：为整合后的片尾画面生成单一视频片段
+    # ----------------------------------------------------
+    await safe_generate_tts(OUTRO_TTS_TEXT, "seg_audio_outro.mp3")
     dur_outro = get_audio_duration("seg_audio_outro.mp3")
-    create_srt(OUTRO_TEXT, dur_outro, "sub_outro.srt")
+    create_srt(OUTRO_TTS_TEXT, dur_outro, "sub_outro.srt")
     audio_segments.append("seg_audio_outro.mp3")
-    create_static_video("disclaimer.png", "seg_video_outro.mp4", dur_outro, srt_file="sub_outro.srt")
+    create_static_video("outro.png", "seg_video_outro.mp4", dur_outro, srt_file="sub_outro.srt")
     video_segments.append("seg_video_outro.mp4")
 
     print("🎬 正在无缝拼装带字幕的宽屏音视频序列...")
@@ -656,7 +624,8 @@ async def main():
     print("✈️ 正在推送到 Telegram 接收端...")
     tg_msg = f"📝 【小红书版】\n💡 {ai_script.get('xhs_title', '')}\n\n{ai_script.get('xhs_article', '')}\n\n====================\n\n📝 【微信公众号版】\n💡 {ai_script.get('gzh_title', '')}\n\n{ai_script.get('gzh_article', '')}\n\n--- 🎬 视频文案备份 ---\n{ai_script.get('video_intro', '')}"
     
-    img_list = ["cover_image.png", "hook.png", "disclaimer.png"] + [f"ss_etf_{i}.png" for i in range(len(etf_list))]
+    # 将 Telegram 发送的图片列表同步更新为统一生成的片尾图 (outro.png)
+    img_list = ["cover_image.png", "outro.png"] + [f"ss_etf_{i}.png" for i in range(len(etf_list))]
     send_telegram(tg_msg, video_path=final_video, photos=img_list)
     print("✅ 全部工作流执行完毕！")
 
