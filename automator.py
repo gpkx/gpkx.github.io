@@ -55,6 +55,12 @@ def _reduce_ratio(w, h):
     return f"{w // g}:{h // g}"
 VIDEO_ASPECT = _reduce_ratio(VIDEO_W, VIDEO_H)
 
+# 字幕字号与每行字数按视频尺寸缩放，避免竖屏溢出。
+# 参考基准：横屏 1920x1080 下 FontSize=12、每行40字 刚好不溢出。
+# 字幕实际渲染大小 ∝ FontSize × 视频高度，故字号按高度反比缩放；每行字数按宽度缩放。
+_SUB_FONT_SIZE = max(6, round(12 * (1080 / VIDEO_H)))
+_SUB_MAX_CHARS = max(10, int(40 * (VIDEO_W / 1920)))
+
 def get_tv_symbol(code):
     if code.startswith(('5', '6')): return f"SSE:{code}"
     return f"SZSE:{code}"
@@ -119,7 +125,7 @@ def create_srt(text, duration, filename):
     end_time = format_time(duration)
     clean_text = text.replace(' ETF ', 'ETF').replace(' ATR ', 'ATR')
     
-    max_chars_per_line = 40 
+    max_chars_per_line = _SUB_MAX_CHARS  # 按视频宽度缩放，避免竖屏每行字数过多溢出
     lines = [clean_text[i:i+max_chars_per_line] for i in range(0, len(clean_text), max_chars_per_line)]
     text_block = "\n".join(lines)
     
@@ -129,7 +135,7 @@ def create_srt(text, duration, filename):
 def get_subtitle_filter(srt_file):
     if srt_file and os.path.exists(srt_file):
         srt_path = srt_file.replace('\\', '\\\\').replace(':', '\\:')
-        return f"subtitles={srt_path}:force_style='FontName=Alibaba PuHuiTi,FontSize=12,PrimaryColour=&H00000000,Outline=0,Shadow=0,MarginV=30,Alignment=2'"
+        return f"subtitles={srt_path}:force_style='FontName=Alibaba PuHuiTi,FontSize={_SUB_FONT_SIZE},PrimaryColour=&H00000000,Outline=0,Shadow=0,MarginV=30,Alignment=2'"
     return ""
 
 # 统一的视频元数据滤镜：强制 1920x1080 / SAR 1:1，避免 Telegram 预览图比例与封面不一致
@@ -238,8 +244,8 @@ def add_watermark_to_chart(img_path, text):
         txt_layer = Image.new('RGBA', img.size, (255, 255, 255, 0))
         draw = ImageDraw.Draw(txt_layer)
 
-        target_w = img.width * 0.18   # 约为原来的 1/5（原 88% → 18%）
-        max_h = img.height * 0.05      # 高度同步缩到约 1/5
+        target_w = img.width * 0.3   # 约为原来的 1/5（原 88% → 18%）
+        max_h = img.height * 0.06      # 高度同步缩到约 1/5
 
         # 二分查找最大可用字号（同时受宽度与高度约束）
         lo, hi, best = 40, 6000, 40
@@ -566,12 +572,10 @@ async def main():
             await page.goto(f"{TV_CHART_URL.rstrip('/')}/?symbol={symbol}&interval={tv_int}", wait_until="domcontentloaded")
             
             await page.wait_for_timeout(6000)
-            await page.wait_for_timeout(1000)
-            await page.keyboard.press("Shift+ArrowRight")
-            await page.wait_for_timeout(1000)
-       
-            await page.keyboard.press("Shift+ArrowRight")
-            await page.wait_for_timeout(500)
+            # 不再按 Shift+ArrowRight：该键会把图表向右(未来方向)平移，
+            # 导致最新 K 线被推向左侧、右侧出现大段空白。让图表以保存布局的默认位置加载，
+            # 最新 K 线自然停在最右侧。
+            await page.wait_for_timeout(1500)
 
             img_output = f"ss_etf_{i}.png"
             try:
