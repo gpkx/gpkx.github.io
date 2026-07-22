@@ -567,27 +567,45 @@ async def main():
                     break
 
             weekday_text_map = {
-                0: ["周一", "星期一", "周1"],
-                1: ["周二", "星期二", "周2"],
-                2: ["周三", "星期三", "周3"],
-                3: ["周四", "星期四", "周4"],
-                4: ["周五", "星期五", "周5"],
-                5: ["周六", "星期六", "周6"],
-                6: ["周日", "星期日", "周7"],
+                0: ["周一", "星期一", "周1", "Mon"],
+                1: ["周二", "星期二", "周2", "Tue"],
+                2: ["周三", "星期三", "周3", "Wed"],
+                3: ["周四", "星期四", "周4", "Thu"],
+                4: ["周五", "星期五", "周5", "Fri"],
+                5: ["周六", "星期六", "周6", "Sat"],
+                6: ["周日", "星期日", "周7", "Sun"],
             }
+
+            today_week_keys = weekday_text_map.get(TODAY_WEEKDAY, [])
+            today_day_keys = [
+                str(NOW.day),
+                f"{NOW.day}日",
+                NOW.strftime("%m-%d"),
+                NOW.strftime("%-m-%-d") if os.name != "nt" else f"{NOW.month}-{NOW.day}",
+            ]
 
             preferred_col_idx = None
             if header:
-                today_keys = weekday_text_map.get(TODAY_WEEKDAY, [])
-                date_keys = [NOW.strftime("%d").lstrip("0"), f"{NOW.day}日", NOW.strftime("%m-%d")]
                 for idx, h in enumerate(header):
-                    h_str = h or ""
-                    if "周线" in h_str and IS_SATURDAY:
+                    h_str = (h or "").strip()
+                    if IS_SATURDAY and any(k in h_str for k in ["周线", "周末", "W"]):
                         preferred_col_idx = idx
                         break
-                    if any(k in h_str for k in today_keys + date_keys):
+                    if any(wk in h_str for wk in today_week_keys) and any(dk in h_str for dk in today_day_keys):
                         preferred_col_idx = idx
                         break
+                if preferred_col_idx is None:
+                    for idx, h in enumerate(header):
+                        h_str = (h or "").strip()
+                        if any(wk in h_str for wk in today_week_keys):
+                            preferred_col_idx = idx
+                            break
+                if preferred_col_idx is None:
+                    for idx, h in enumerate(header):
+                        h_str = (h or "").strip()
+                        if any(dk in h_str for dk in today_day_keys):
+                            preferred_col_idx = idx
+                            break
 
             if preferred_col_idx is None:
                 preferred_col_idx = TARGET_COL_IDX
