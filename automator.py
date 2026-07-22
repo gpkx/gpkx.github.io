@@ -511,20 +511,22 @@ async def main():
         etf_list = []
 
         def pick_pct_from_row(row, preferred_idx=None):
-            candidates = []
+            # 如果明确指定了目标列，则严格只从该列获取数据
             if preferred_idx is not None and preferred_idx < len(row):
                 cell = row[preferred_idx]
                 if isinstance(cell, str) and "%" in cell:
-                    candidates.append(cell)
+                    m = re.search(r"[-+]?\d+(?:\.\d+)?%", cell)
+                    if m:
+                        return m.group(0)
+                # 目标列没有有效百分比数据时，直接返回空，不再遍历全行
+                return ""
 
+            # 仅在未指定目标列时的后备方案
             for cell in row:
                 if isinstance(cell, str) and "%" in cell:
-                    candidates.append(cell)
-
-            for cell in candidates:
-                m = re.search(r"[-+]?\d+(?:\.\d+)?%", cell)
-                if m:
-                    return m.group(0)
+                    m = re.search(r"[-+]?\d+(?:\.\d+)?%", cell)
+                    if m:
+                        return m.group(0)
             return ""
 
         try:
