@@ -80,8 +80,8 @@ def _resolve_col_date(day):
 def format_quant_voice(val_str):
     try:
         val = float(val_str.replace('%', '').replace('+', ''))
-        if val > 0: return f"ATR拉升了{abs(val)}%"
-        elif val < 0: return f"ATR回撤了{abs(val)}%"
+        if val > 0: return f"ATR涨幅为{abs(val)}%"
+        elif val < 0: return f"ATR跌幅为{abs(val)}%"
         return "ATR 处于零轴震荡区"
     except:
         return "暂无有效读数"
@@ -163,7 +163,7 @@ def create_zoom_video(img_path, output_video, duration, fps=VIDEO_FPS, zoom_type
         LATEST_KL_X = 0.72 * W
         LATEST_KL_Y = 0.50 * H
         START_ZOOM = 1.0
-        END_ZOOM = 1.3   
+        END_ZOOM = 1.5   
 
     for i in range(total_frames):
         if zoom_type == 'tv':
@@ -275,14 +275,14 @@ def call_ai_director(etf_list, time_label, report_type):
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
 
     if report_type == "weekly":
-        prompt_context = f"今天【{DATE_STR}】是周末。请对本周触发异动的排名前四只 ETF 进行纯粹的客观数据播报。"
+        prompt_context = f"今天【{DATE_STR}】是周末。请对本周触发涨跌幅异动的排名前四只ETF进行纯粹的客观数据播报。"
     else:
-        prompt_context = f"今天【{DATE_STR}{time_label}】有以下 ETF 触发主力资金异动。请进行纯粹的客观数据播报。"
+        prompt_context = f"今天【{DATE_STR}{time_label}】有以下ETF触发涨跌幅异动。请进行纯粹的客观数据播报。"
 
     if not etf_list:
         prompt = f"""
         你现在是一个没有任何感情的金融数据播报机器人。{prompt_context}
-        今日没有任何ETF触发异动阈值。请生成通报文章。
+        今日没有任何ETF触发涨跌幅异动阈值。请生成通报文章。
         🚨【核心铁律】：绝对不准输出任何主观预测、投资建议、或情绪化字眼（如“宁缺毋滥”、“管住手”等）。只陈述“今日无触发”的客观事实。
         【输出要求】返回 JSON：
         - "xhs_title": 小红书客观标题
@@ -294,7 +294,7 @@ def call_ai_director(etf_list, time_label, report_type):
         prompt = f"""
         你现在是一个没有任何感情的金融数据播报机器人。{prompt_context}
         
-        【核心异动数据】：
+        【核心涨跌幅异动数据】：
         {json.dumps(etf_list, ensure_ascii=False, indent=2)}
 
         🚨 【最高指令：禁绝一切主观与预测】🚨
@@ -303,8 +303,8 @@ def call_ai_director(etf_list, time_label, report_type):
         3. 你不知道标的物的长线走势，所以请务必闭嘴，只报今天的数据，不说假话！
 
         【输出要求】严格返回JSON，包含：
-        - "video_intro": 短视频开场口播（20-30字，打招呼+直接报出今天有几只异动）。🚨极端重要：必须全部使用纯中文生成！仅在提到ETF这三个字时，写成大写的 ETF。
-        - "etf_narratives": 【数组】包含{len(etf_list)}句短评，严格对应传入的ETF！要求：纯客观陈述“某某ETF，涨/跌了百分之几”。绝不允许添加任何后续的操作建议或趋势点评！
+        - "video_intro": 短视频开场口播（20-30字，打招呼+直接报出今天有几只涨跌幅异动）。🚨极端重要：必须全部使用纯中文生成！仅在提到ETF这三个字时，写成大写的ETF。
+        - "etf_narratives": 【数组】包含{len(etf_list)}句短评，严格对应传入的ETF！要求：纯客观陈述“某某ETF，ATR涨/跌幅为百分之几”。绝不允许添加任何后续的操作建议或趋势点评！
         - "xhs_title": 小红书标题（要求客观、直接、数据驱动）。
         - "xhs_article": 小红书正文（严禁主观废话，只列数据及表现）。
         - "gzh_title": 公众号标题。
