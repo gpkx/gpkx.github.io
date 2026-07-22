@@ -511,18 +511,22 @@ async def main():
         etf_list = []
 
         def pick_pct_from_row(row, preferred_idx=None):
-            # 如果明确指定了目标列，则严格只从该列获取数据
+            # 1. 如果明确知道要抓哪一列（比如周三是目标列）
             if preferred_idx is not None and preferred_idx < len(row):
                 cell = row[preferred_idx]
+        
+                # 检查这个单元格里有没有包含 '%'
                 if isinstance(cell, str) and "%" in cell:
                     m = re.search(r"[-+]?\d+(?:\.\d+)?%", cell)
                     if m:
                         return m.group(0)
-                # 目标列没有有效百分比数据时，直接返回空，不再遍历全行
+                
+                # 🔴 核心阻断点：只要找了当天的列，不管里面是真实的涨跌幅还是横杠 "-"，
+                # 都必须在这里强制结束并返回空值，绝对不允许代码继续往后找前一天的数据！
                 return ""
 
-            # 仅在未指定目标列时的后备方案
-            for cell in row:
+            # 2. 只有在极端异常（完全找不到表头）的情况下，才使用后备方案倒序查找
+            for cell in reversed(row):
                 if isinstance(cell, str) and "%" in cell:
                     m = re.search(r"[-+]?\d+(?:\.\d+)?%", cell)
                     if m:
