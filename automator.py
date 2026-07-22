@@ -428,7 +428,7 @@ def send_telegram(text, video_path=None, photos=None):
     if not bot_token or not chat_id:
         return
         
-    tg_host = "[https://api.telegram.org/bot](https://api.telegram.org/bot)"
+    tg_host = "https://api.telegram.org/bot"
     try:
         requests.post(f"{tg_host}{bot_token}/sendMessage", data={'chat_id': chat_id, 'text': text}).raise_for_status()
         if video_path and os.path.exists(video_path):
