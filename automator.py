@@ -379,6 +379,7 @@ def _build_ai_prompt(etf_list, time_label, report_type):
 4. 如果信息不足，宁可写得短，也不要编造。
 """
 
+
 def call_ai_director(etf_list, time_label, report_type):
     api_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
     if not api_key:
@@ -420,7 +421,6 @@ def call_ai_director(etf_list, time_label, report_type):
             time.sleep(2)
 
     raise Exception(f"AI 生成失败: {last_err}")
-
 
 def send_telegram(text, video_path=None, photos=None):
     bot_token = os.getenv('TELEGRAM_BOT_TOKEN', '').strip()
