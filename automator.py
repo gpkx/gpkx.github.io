@@ -510,53 +510,141 @@ async def main():
         print("🔍 正在提取核心数据...")
         etf_list = []
 
+        def pick_pct_from_row(row, preferred_idx=None):
+            candidates = []
+            if preferred_idx is not None and preferred_idx < len(row):
+                cell = row[preferred_idx]
+                if isinstance(cell, str) and "%" in cell:
+                    candidates.append(cell)
+
+            for cell in row:
+                if isinstance(cell, str) and "%" in cell:
+                    candidates.append(cell)
+
+            for cell in candidates:
+                m = re.search(r"[-+]?\d+(?:\.\d+)?%", cell)
+                if m:
+                    return m.group(0)
+            return ""
+
         try:
             await page.goto(TARGET_URL, wait_until="domcontentloaded")
-            await page.wait_for_timeout(3000)
+            await page.wait_for_timeout(4000)
+
             row_data = await page.evaluate("""
 () => {
-  return Array.from(document.querySelectorAll('tr, .el-table__row')).map(tr => {
-    return Array.from(tr.querySelectorAll('td, th')).map(td => td.innerText.trim());
-  }).filter(row => row.length >= 7);
+  const tables = Array.from(document.querySelectorAll('table, .el-table, .el-table__body-wrapper, .table, .ant-table'));
+  const rows = [];
+
+  const pushRows = (root) => {
+    Array.from(root.querySelectorAll('tr, .el-table__row')).forEach(tr => {
+      const cells = Array.from(tr.querySelectorAll('th, td')).map(td => (td.innerText || td.textContent || '').trim());
+      if (cells.length >= 3) rows.push(cells);
+    });
+  };
+
+  if (tables.length) {
+    tables.forEach(pushRows);
+  } else {
+    Array.from(document.querySelectorAll('tr, .el-table__row')).forEach(tr => {
+      const cells = Array.from(tr.querySelectorAll('th, td')).map(td => (td.innerText || td.textContent || '').trim());
+      if (cells.length >= 3) rows.push(cells);
+    });
+  }
+
+  return rows.filter(r => r.some(c => c && c.length > 0));
 }
 """)
 
-            header = next((r for r in row_data if any((('周线' in (c or '')) or ('周一' in (c or '')) or ('周日' in (c or ''))) for c in r)), [])
-            weekly_col_idx = None
-            col_dates = {}
+            if not row_data:
+                raise Exception("页面未抓到任何表格行数据")
 
-            for idx, h in enumerate(header):
-                h_str = h or ""
-                if "周线" in h_str:
-                    weekly_col_idx = idx
-                    continue
-                m = re.search(r"(\d{1,2})\s*日", h_str)
-                if m:
-                    col_dates[idx] = _resolve_col_date(int(m.group(1)))
+            header = []
+            for r in row_data[:8]:
+                joined = " ".join([c or "" for c in r])
+                if re.search(r"周|日|月", joined):
+                    header = r
+                    break
+
+            weekday_text_map = {
+                0: ["周一", "星期一", "周1"],
+                1: ["周二", "星期二", "周2"],
+                2: ["周三", "星期三", "周3"],
+                3: ["周四", "星期四", "周4"],
+                4: ["周五", "星期五", "周5"],
+                5: ["周六", "星期六", "周6"],
+                6: ["周日", "星期日", "周7"],
+            }
+
+            preferred_col_idx = None
+            if header:
+                today_keys = weekday_text_map.get(TODAY_WEEKDAY, [])
+                date_keys = [NOW.strftime("%d").lstrip("0"), f"{NOW.day}日", NOW.strftime("%m-%d")]
+                for idx, h in enumerate(header):
+                    h_str = h or ""
+                    if "周线" in h_str and IS_SATURDAY:
+                        preferred_col_idx = idx
+                        break
+                    if any(k in h_str for k in today_keys + date_keys):
+                        preferred_col_idx = idx
+                        break
+
+            if preferred_col_idx is None:
+                preferred_col_idx = TARGET_COL_IDX
+
+            print(f"✅ 表头识别完成，优先列索引: {preferred_col_idx}")
+
+            def extract_code_and_name(cell):
+                if not cell:
+                    return None, None
+                code_match = re.search(r"\b(5\d{5}|1\d{5})\b", cell)
+                if not code_match:
+                    return None, None
+                code = code_match.group(1)
+                name = re.sub(r"\d+", "", cell).strip()
+                return code, name
 
             for row in row_data:
-                name_cell = row
-                code_match = re.search(r"\b(5\d{5}|1\d{5})\b", name_cell)
-                if not code_match:
+                if not row:
                     continue
-                code = code_match.group(1)
-                name = re.sub(r"\d+", "", name_cell).strip()
+
+                name_cell = row[0] if len(row) > 0 else ""
+                code, name = extract_code_and_name(name_cell)
+                if not code:
+                    continue
+
                 target_val = ""
-                target_date = None
 
-                if IS_SATURDAY and weekly_col_idx is not None:
-                    if weekly_col_idx < len(row) and "%" in row[weekly_col_idx]:
-                        target_val = row[weekly_col_idx]
+                if IS_SATURDAY:
+                    target_val = pick_pct_from_row(row, preferred_col_idx)
                 else:
-                    if TARGET_COL_IDX < len(row):
-                        cell = row[TARGET_COL_IDX]
-                        if "%" in cell:
-                            target_val = cell
-                            target_date = col_dates.get(TARGET_COL_IDX)
+                    target_val = pick_pct_from_row(row, preferred_col_idx)
 
-                if target_val:
-                    etf_list.append({"name": name, "code": code, "change": target_val, "data_date": target_date})
+                if not target_val:
+                    continue
 
+                target_date = None
+                if not IS_SATURDAY and preferred_col_idx is not None and preferred_col_idx < len(row):
+                    target_date = _resolve_col_date(NOW.day)
+
+                etf_list.append({
+                    "name": name,
+                    "code": code,
+                    "change": target_val,
+                    "data_date": target_date
+                })
+
+            dedup = {}
+            for item in etf_list:
+                key = item["code"]
+                if key not in dedup:
+                    dedup[key] = item
+                else:
+                    old = dedup[key]
+                    if abs(parse_pct_to_float(item["change"])) > abs(parse_pct_to_float(old["change"])):
+                        dedup[key] = item
+
+            etf_list = list(dedup.values())
             etf_list.sort(key=lambda x: abs(parse_pct_to_float(x["change"])), reverse=True)
 
             if etf_list:
@@ -564,6 +652,7 @@ async def main():
                 cf_token = os.getenv("CF_API_TOKEN", "").strip()
                 if cf_url and cf_token:
                     cf_headers = {"Content-Type": "application/json", "Authorization": f"Bearer {cf_token}"}
+
                     if not IS_SATURDAY:
                         today_iso = NOW.date().isoformat()
                         using_stale = all(e.get("data_date") and e["data_date"] != today_iso for e in etf_list)
@@ -592,6 +681,11 @@ async def main():
                         print(f"⚠️ 同步到 Cloudflare 失败: {e}")
 
                 etf_list = etf_list[:4]
+                print(f"✅ 成功提取 ETF 数量: {len(etf_list)}")
+                for x in etf_list:
+                    print(f"   - {x['name']} {x['change']}")
+            else:
+                print("⚠️ 未提取到 ETF 阈值数据，后续将进入无数据分支")
 
         except Exception as e:
             print(f"提取数据发生异常: {e}")
