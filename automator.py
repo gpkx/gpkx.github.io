@@ -440,14 +440,12 @@ async def main():
                         target_val = row[weekly_col_idx]
                         target_date = None  
                 else:
-                    for idx in range(len(row) - 1, 0, -1):
-                        if idx == weekly_col_idx:
-                            continue
-                        cell = row[idx] if idx < len(row) else ''
+                    # ✅ 优化：强制精准匹配“今日”列，杜绝抓取历史残留高值
+                    if TARGET_COL_IDX < len(row):
+                        cell = row[TARGET_COL_IDX]
                         if '%' in cell:
                             target_val = cell
-                            target_date = col_dates.get(idx)
-                            break
+                            target_date = col_dates.get(TARGET_COL_IDX)
                 if target_val:
                     etf_list.append({"name": name, "code": code, "change": target_val, "data_date": target_date})
             
