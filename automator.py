@@ -643,7 +643,7 @@ async def main():
 
                 target_date = None
                 if not IS_SATURDAY and preferred_col_idx is not None and preferred_col_idx < len(row):
-                    target_date = _resolve_col_date(NOW.day)
+                    target_date = NOW.date().isoformat()
 
                 etf_list.append({
                     "name": name,
