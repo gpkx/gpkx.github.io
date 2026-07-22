@@ -544,36 +544,6 @@ async def main():
             
             etf_list.sort(key=lambda x: abs(parse_pct_to_float(x['change'])), reverse=True)
             
-            if etf_list:
-                cf_url = os.getenv("CF_WORKER_URL", "").strip()
-                cf_token = os.getenv("CF_API_TOKEN", "").strip()
-                
-                if cf_url and cf_token:
-                    cf_headers = {"Content-Type": "application/json", "Authorization": f"Bearer {cf_token}"}
-                    if not IS_SATURDAY and etf_list:
-                        today_iso = NOW.date().isoformat()
-                        using_stale = all(e.get("data_date") and e["data_date"] != today_iso for e in etf_list)
-                        if using_stale:
-                            try:
-                                requests.delete(f"{cf_url}?date={today_iso}", headers=cf_headers, timeout=30)
-                                print(f"🧹 已清理今天({today_iso})的残留旧数据")
-                            except Exception as e:
-                                print(f"⚠️ 清理今天数据失败: {e}")
-                    data_list = []
-                    for etf in etf_list:
-                        item = {"etf_code": etf["code"], "etf_name": etf["name"]}
-                        if etf.get("data_date"):
-                            item["date"] = etf["data_date"]
-                        if IS_SATURDAY: item["week_status"] = etf["change"]
-                        else: item["day_status"] = etf["change"]
-                        data_list.append(item)
-                    
-                    try:
-                        cf_response = requests.post(cf_url, json=data_list, headers=cf_headers, timeout=30)
-                        print(f"☁️ Cloudflare 同步结果: {cf_response.text}")
-                    except Exception as e:
-                        print(f"⚠️ 同步到 Cloudflare 失败: {e}")
-
             etf_list = etf_list[:4]
         except Exception as e:
             print(f"提取数据发生异常: {e}")
