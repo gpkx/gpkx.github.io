@@ -109,6 +109,10 @@ def clean_for_tts(text):
     text = re.sub(r'(?i)\betf\b', ' ETF ', text)
     text = re.sub(r'(?i)\batr\b', ' ATR ', text)
     text = re.sub(r'(?i)\ba股\b', ' A股 ', text)
+    
+    # 👇 新增：精准匹配6位数字(ETF代码)，并用空格隔开，强制TTS逐个数字读出
+    text = re.sub(r'(?<!\d)(\d{6})(?!\d)', lambda m: ' '.join(m.group(1)), text)
+    
     return text.strip()
 
 def create_srt(text, duration, filename):
