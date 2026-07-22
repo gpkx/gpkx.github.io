@@ -7,11 +7,12 @@ import re
 import time
 import shutil
 from datetime import datetime, timedelta
+
 import pytz
-from playwright.async_api import async_playwright
-import edge_tts
 import requests
 from PIL import Image, ImageOps, ImageDraw, ImageFont
+from playwright.async_api import async_playwright
+import edge_tts
 
 TARGET_URL = "https://gpkx.github.io/"
 TV_CHART_URL = "https://cn.tradingview.com/chart/fxUqvHrk/"
@@ -279,11 +280,6 @@ def add_watermark_to_chart(img_path, text):
         print(f"⚠️ 图表添加水印失败: {e}")
 
 
-def _clip_text(s, max_len):
-    s = str(s).strip()
-    return s if len(s) <= max_len else s[:max_len].rstrip() + "…"
-
-
 def _build_ai_prompt(etf_list, time_label, report_type):
     if not etf_list:
         return f"""
@@ -301,13 +297,13 @@ def _build_ai_prompt(etf_list, time_label, report_type):
 今日没有ETF触发异动阈值。请输出适合不同平台发布的“无异动版”内容，语气客观、克制、专业。
 
 【输出字段】
-- "video_intro": 短视频开场口播，20-30字，口语化，顺口，可直接播读。
-- "xhs_title": 小红书标题，简洁有钩子，但不得夸张。
-- "xhs_article": 小红书正文，80-160字，先说明今日无明显异动，再给出简短盘面观察，允许少量emoji。
-- "xhs_tags": 小红书标签数组，3-6个，必须真实相关。
-- "gzh_title": 微信公众号标题，专业克制。
-- "gzh_article": 微信公众号正文，120-220字，结构清晰，适合复盘阅读。
-- "cover_html": 封面HTML，1080x1920，现代金融风，标题突出“今日ETF涨跌幅Top4/无触发”，副标题用日期和时间标签。
+- "video_intro"
+- "xhs_title"
+- "xhs_article"
+- "xhs_tags"
+- "gzh_title"
+- "gzh_article"
+- "cover_html"
 
 【无异动内容要求】
 1. 不能硬凑“板块主线”或“资金偏好”。
@@ -426,17 +422,14 @@ def call_ai_director(etf_list, time_label, report_type):
             raw_text = response.json()["choices"][0]["message"]["content"]
             clean_text = re.sub(r"^```json\s*|^```\s*|\s*```$", "", raw_text, flags=re.IGNORECASE)
             data = json.loads(clean_text.strip())
-
             for k in ["video_intro", "xhs_title", "xhs_article", "gzh_title", "gzh_article", "cover_html"]:
                 data.setdefault(k, "")
             data.setdefault("xhs_tags", [])
             data.setdefault("etf_narratives", [])
-
             if not isinstance(data["xhs_tags"], list):
                 data["xhs_tags"] = []
             if not isinstance(data["etf_narratives"], list):
                 data["etf_narratives"] = []
-
             return data
         except Exception as e:
             last_err = e
@@ -465,7 +458,12 @@ def send_telegram(text, video_path=None, photos=None):
                         files[f"f{idx}"] = open(img, "rb")
                         media_group.append({"type": "photo", "media": f"attach://f{idx}"})
                 if media_group:
-                    requests.post(f"{tg_host}{bot_token}/sendMediaGroup", data={"chat_id": chat_id, "media": json.dumps(media_group)}, files=files, timeout=60).raise_for_status()
+                    requests.post(
+                        f"{tg_host}{bot_token}/sendMediaGroup",
+                        data={"chat_id": chat_id, "media": json.dumps(media_group)},
+                        files=files,
+                        timeout=60
+                    ).raise_for_status()
                 for f in files.values():
                     f.close()
     except Exception as e:
@@ -522,6 +520,7 @@ async def main():
   }).filter(row => row.length >= 7);
 }
 """)
+
             header = next((r for r in row_data if any((('周线' in (c or '')) or ('周一' in (c or '')) or ('周日' in (c or ''))) for c in r)), [])
             weekly_col_idx = None
             col_dates = {}
@@ -609,14 +608,11 @@ async def main():
 
         print("🎭 正在生成剧本并渲染封面 (含 Top4 数据)...")
         ai_script = call_ai_director(etf_list, TIME_LABEL, REPORT_TYPE)
-        
-        await page.set_content(ai_script.get('cover_html', '<html></html>'))
-        await page.wait_for_timeout(2000) 
+
+        await page.set_content(ai_script.get("cover_html", ""))
+        await page.wait_for_timeout(2000)
         await page.screenshot(path="cover_image.png")
 
-        # ----------------------------------------------------
-        # 核心修改点：钩子(Hook)与免责声明(Disclaimer)画面合并
-        # ----------------------------------------------------
         outro_html = """
         <!DOCTYPE html><html><head><meta charset="UTF-8"><style>
             body { background: linear-gradient(135deg, #f8fafc, #e2e8f0); display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: 'Alibaba PuHuiTi', 'Microsoft YaHei'; height: 100vh; margin: 0; text-align: center; }
@@ -636,9 +632,7 @@ async def main():
                     <span class="highlight">关注+评论[名单]领取</span>
                 </div>
             </div>
-            
             <div class="divider"></div>
-            
             <div class="disclaimer-box">
                 <div class="disclaimer-title">免责声明</div>
                 <div class="disclaimer-text">
@@ -656,10 +650,9 @@ async def main():
 
         print("🌐 正在使用快捷键原生下载 TV 图表...")
         for i, etf in enumerate(etf_list):
-            symbol = get_tv_symbol(etf['code'])
+            symbol = get_tv_symbol(etf["code"])
             tv_int = "W" if TV_INTERVAL == "1W" else TV_INTERVAL
             await page.goto(f"{TV_CHART_URL.rstrip('/')}/?symbol={symbol}&interval={tv_int}", wait_until="domcontentloaded")
-            
             await page.wait_for_timeout(6000)
             await page.wait_for_timeout(1500)
 
@@ -667,24 +660,23 @@ async def main():
             try:
                 async with page.expect_download(timeout=15000) as download_info:
                     await page.keyboard.press("Control+Alt+s")
-                
                 download = await download_info.value
                 await download.save_as(img_output)
                 print(f"  ✓ 成功下载 ETF_{i} 原始图表")
             except Exception as e:
                 print(f"  ⚠️ 原生下载失败，触发后备截图方案: {e}")
                 await page.screenshot(path=img_output)
-            
+
             _prepare_chart_image_file(img_output)
             add_watermark_to_chart(img_output, f"{etf['name']} {etf['code']}")
-            
+
         await browser.close()
 
     print("🎵 正在生成字幕、合成配音与视频序列...")
     video_segments = []
     audio_segments = []
 
-    active_intro = clean_for_tts(ai_script.get('video_intro', ''))
+    active_intro = clean_for_tts(ai_script.get("video_intro", ""))
     await safe_generate_tts(active_intro, "audio_intro.mp3")
     dur_intro = get_audio_duration("audio_intro.mp3")
     create_srt(active_intro, dur_intro, "sub_intro.srt")
@@ -692,28 +684,25 @@ async def main():
     video_segments.append("seg_cover.mp4")
     audio_segments.append("audio_intro.mp3")
 
-    ai_narratives = ai_script.get('etf_narratives', [])
+    ai_narratives = ai_script.get("etf_narratives", [])
     for i, etf in enumerate(etf_list):
         if i < len(ai_narratives):
             etf_text = clean_for_tts(ai_narratives[i])
         else:
             etf_text = f"最后看{etf['name']}的客观走势，{format_quant_voice(etf['change'])}。"
-            
+
         audio_name = f"seg_audio_etf_{i}.mp3"
         await safe_generate_tts(etf_text, audio_name)
         dur_etf = get_audio_duration(audio_name)
         audio_segments.append(audio_name)
-        
+
         srt_name = f"sub_etf_{i}.srt"
         create_srt(etf_text, dur_etf, srt_name)
-        
+
         video_name = f"seg_video_etf_{i}.mp4"
-        create_zoom_video(f"ss_etf_{i}.png", video_name, dur_etf, zoom_type='tv', srt_file=srt_name)
+        create_zoom_video(f"ss_etf_{i}.png", video_name, dur_etf, zoom_type="tv", srt_file=srt_name)
         video_segments.append(video_name)
 
-    # ----------------------------------------------------
-    # 核心修改点：为整合后的片尾画面生成单一视频片段
-    # ----------------------------------------------------
     await safe_generate_tts(OUTRO_TTS_TEXT, "seg_audio_outro.mp3")
     dur_outro = get_audio_duration("seg_audio_outro.mp3")
     create_srt(OUTRO_TTS_TEXT, dur_outro, "sub_outro.srt")
@@ -722,25 +711,33 @@ async def main():
     video_segments.append("seg_video_outro.mp4")
 
     print("🎬 正在无缝拼装带字幕的宽屏音视频序列...")
-    with open("list_v.txt", "w") as f: f.writelines([f"file '{v}'\n" for v in video_segments])
-    with open("list_a.txt", "w") as f: f.writelines([f"file '{a}'\n" for a in audio_segments])
-    
+    with open("list_v.txt", "w") as f:
+        f.writelines([f"file '{v}'\n" for v in video_segments])
+    with open("list_a.txt", "w") as f:
+        f.writelines([f"file '{a}'\n" for a in audio_segments])
+
     subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "list_v.txt", "-c:v", "copy", "temp_v.mp4"], check=True)
     subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "list_a.txt", "-c:a", "copy", "temp_a.mp3"], check=True)
 
     final_video = f"etf_report_{FILE_SUFFIX}.mp4"
     mux_final_video("temp_v.mp4", "temp_a.mp3", "bgm.mp3", final_video)
-        
+
     for tmp in ["temp_v.mp4", "temp_a.mp3"] + video_segments:
-        if os.path.exists(tmp): os.remove(tmp)
-        
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
     print("✈️ 正在推送到 Telegram 接收端...")
-    tg_msg = f"📝 【小红书版】\n💡 {ai_script.get('xhs_title', '')}\n\n{ai_script.get('xhs_article', '')}\n\n====================\n\n📝 【微信公众号版】\n💡 {ai_script.get('gzh_title', '')}\n\n{ai_script.get('gzh_article', '')}\n\n--- 🎬 视频文案备份 ---\n{ai_script.get('video_intro', '')}"
-    
-    # 将 Telegram 发送的图片列表同步更新为统一生成的片尾图 (outro.png)
+    tg_msg = (
+        f"📝 【小红书版】\n💡 {ai_script.get('xhs_title', '')}\n\n{ai_script.get('xhs_article', '')}\n\n"
+        f"====================\n\n"
+        f"📝 【微信公众号版】\n💡 {ai_script.get('gzh_title', '')}\n\n{ai_script.get('gzh_article', '')}\n\n"
+        f"--- 🎬 视频文案备份 ---\n{ai_script.get('video_intro', '')}"
+    )
+
     img_list = ["cover_image.png", "outro.png"] + [f"ss_etf_{i}.png" for i in range(len(etf_list))]
     send_telegram(tg_msg, video_path=final_video, photos=img_list)
     print("✅ 全部工作流执行完毕！")
+
 
 if __name__ == "__main__":
     asyncio.run(main())
