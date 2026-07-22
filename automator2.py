@@ -36,13 +36,13 @@ else:
     TARGET_COL_IDX = TODAY_WEEKDAY + 1  
 
 DATE_STR = NOW.strftime("%m月%d日")
-COVER_TITLE = "本周ETF异动Top4" if IS_SATURDAY else "今日ETF异动Top4"
+COVER_TITLE = "本周ETF涨跌幅Top4" if IS_SATURDAY else "今日ETF涨跌幅Top4"
 COVER_SUBTITLE = f"({DATE_STR}-{TIME_LABEL})"
 
 FILE_SUFFIX = NOW.strftime("%Y%m%d_%H%M")
 
 # 整合后的片尾统一语音文案
-OUTRO_TTS_TEXT = "本内容不构成投资建议！"
+OUTRO_TTS_TEXT = "涨跌幅数据由特定指标自动生成，本内容不构成投资建议！"
 
 # 视频统一规格（手机竖屏模式）
 VIDEO_W, VIDEO_H = 1080, 1920
