@@ -1,12 +1,11 @@
 /**
  * 波幅探长 - 数据看板（整合版）
  * - 通用表：免费 TOP3 + VIP 全量
- * - 列轮转：最新采集列固定在最右侧（弹匣式），无新数据则保持
- * - 手机端展示全部列，默认滚到最新 2 列可见（可左滑看历史列）
- * - 本周未出的日线回填上周同星期；周线无本周数据时回填最近一条
+ * - 数据与图表：原采集日映射（同一列同一日期，不跨周混填）
+ * - 列弹匣轮转：最新采集列在最右；手机全列可滑，默认滚到最新
  * - 打赏入口（后台 tip_enabled）
  * js/components/index/Dashboard.js
- * DASHBOARD_BUILD 2026-09-08c accurate per-weekday date mapping
+ * DASHBOARD_BUILD 2026-09-08d original date map + rotating cols
  */
 import { store } from "../../store.js";
 import { etfApi } from "../../api/etf.js";
@@ -68,9 +67,7 @@ export default {
     const tipChannel = ref("wechat"); // wechat | alipay
     const tableScrollEl = ref(null);
 
-    /**
-     * 横向滚到最右（最新列在右侧可见；手机可左滑看更早列）
-     */
+    /** 最新列在最右侧：滚到横向尽头（手机可左滑看更早列） */
     const scrollToLatestCol = async () => {
       await nextTick();
       const el = tableScrollEl.value;
@@ -80,24 +77,23 @@ export default {
       } catch (_) {}
     };
 
+
     const settings = computed(() => store.state.publicSettings || {});
     const tipEnabled = computed(() => settingOn(settings.value.tip_enabled));
 
     const isImageUrl = (url) => {
       const u = String(url || "").trim();
       if (!u || !/^https?:\/\//i.test(u)) return false;
+      // 仅认图片扩展名（允许 query/hash）
       return /\.(png|jpe?g|gif|webp|bmp|svg)(\?|#|$)/i.test(u);
     };
     const tipWechatSrc = computed(() => {
-      const u = String(
-        settings.value.wechat_qr_url || settings.value.tip_wechat_qr_url || ""
-      ).trim();
+      // 仅图片直链；与开通套餐共用 wechat_qr_url（兼容旧 tip_*）
+      const u = String(settings.value.wechat_qr_url || settings.value.tip_wechat_qr_url || "").trim();
       return isImageUrl(u) ? u : "";
     });
     const tipAlipaySrc = computed(() => {
-      const u = String(
-        settings.value.alipay_qr_url || settings.value.tip_alipay_qr_url || ""
-      ).trim();
+      const u = String(settings.value.alipay_qr_url || settings.value.tip_alipay_qr_url || "").trim();
       return isImageUrl(u) ? u : "";
     });
 
@@ -131,67 +127,57 @@ export default {
       return am + "/" + pm + "|" + day;
     };
 
+    /** 图表 icon 悬停：x月x日图表 */
     const chartDateTitle = (dateStr) => {
       const cn = formatDateCN(dateStr);
       return cn ? cn + "图表" : "图表";
     };
 
+    /** 数据单元格悬停：统一「x月x日」；无日期则空 */
     const dataDateTitle = (dateStr, kind = "") => {
       const cn = formatDateCN(dateStr);
       if (!cn) return kind || "";
       return kind ? cn + kind : cn;
     };
 
+    /** 周线数据悬停文案 */
     const weekDataTitle = (item) => {
       if (!item || !item.week_status) return "";
       const cn = formatDateCN(item.week_status_date);
       return cn ? cn + "周线" : "周线";
     };
 
+    /** 日线图表悬停：仅日线图表采集日 */
     const dailyChartTitle = (etfCode, colDate) => {
       const d = chartUpdateDay(etfCode) || globalChartDay.value || colDate;
       return chartDateTitle(d);
     };
 
-    /** 周线图表悬停：只用周线采集日（周六），绝不回落到日线「今天」 */
+    /** 周线图表悬停：仅周线图表采集日（与数据日期脱钩） */
     const weekChartTitle = () => {
-      const d = weeklyChartDay.value;
-      if (d && isValidDate(d)) return chartDateTitle(d);
-      return "周线图表";
+      return chartDateTitle(weeklyChartDay.value || globalChartDay.value) || "周线图表";
     };
 
+    /** 单元格主色：优先日线，其次下午、上午 */
     const cellPrimaryStatus = (item) => {
       if (!item) return null;
-      if (item.day_status && item.day_status !== "-" && item.day_status !== "--")
-        return item.day_status;
-      if (item.pm_status && item.pm_status !== "-" && item.pm_status !== "--")
-        return item.pm_status;
-      if (item.am_status && item.am_status !== "-" && item.am_status !== "--")
-        return item.am_status;
+      if (item.day_status && item.day_status !== "-" && item.day_status !== "--") return item.day_status;
+      if (item.pm_status && item.pm_status !== "-" && item.pm_status !== "--") return item.pm_status;
+      if (item.am_status && item.am_status !== "-" && item.am_status !== "--") return item.am_status;
       return null;
     };
+
 
     const getWeekDays = (dateStr) => {
       const [y, m, d] = parseYMD(dateStr);
       if (!y) return [];
-      // 北京正午取星期，避免服务器/浏览器时区把周一算成周日
-      let day;
-      try {
-        day = new Date(
-          `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}T12:00:00+08:00`
-        ).getDay();
-      } catch (_) {
-        day = new Date(y, m - 1, d).getDay();
-      }
+      const dateObj = new Date(y, m - 1, d);
+      const day = dateObj.getDay();
       const offset = day === 0 ? -6 : 1 - day;
       const monday = new Date(y, m - 1, d + offset);
       const days = [];
       for (let i = 0; i < 5; i++) {
-        const temp = new Date(
-          monday.getFullYear(),
-          monday.getMonth(),
-          monday.getDate() + i
-        );
+        const temp = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i);
         days.push(
           `${temp.getFullYear()}-${String(temp.getMonth() + 1).padStart(2, "0")}-${String(
             temp.getDate()
@@ -228,56 +214,37 @@ export default {
       return `${y}-${m}-${dd}`;
     };
 
-    /**
-     * 日期 → 周几列索引：周一=0 … 周五=4；周末=-1
-     * 用北京正午避免时区把星期几算错
-     */
-    const weekdayIndexFromDate = (dateStr) => {
-      if (!isValidDate(dateStr)) return -1;
-      try {
-        const wd = new Date(dateStr.trim() + "T12:00:00+08:00").getDay();
-        if (wd === 0 || wd === 6) return -1;
-        return wd - 1; // Mon=1 → 0
-      } catch (_) {
-        return -1;
-      }
-    };
-
-    /** 是否有日线/半日线行情（用于判定「最新交易日」） */
-    const itemHasDailyQuote = (item) => {
-      if (!item) return false;
-      const ok = (s) => s && s !== "-" && s !== "--" && s !== "None" && s !== "null";
-      return ok(item.day_status) || ok(item.am_status) || ok(item.pm_status);
-    };
-
-    /**
-     * 展示周的周一：取「最近有日线/半日线的交易日」所在周
-     * （忽略纯周线周六写入，避免把整表锚到上周）
-     */
     const latestMonday = computed(() => {
-      const dailyDates = [
-        ...new Set(
-          allData.value
-            .filter((i) => i.date && isValidDate(i.date) && itemHasDailyQuote(i))
-            .map((i) => i.date.trim())
-        ),
-      ].sort();
-      if (dailyDates.length) {
-        const wDays = getWeekDays(dailyDates[dailyDates.length - 1]);
-        if (wDays.length) return wDays[0];
-      }
-      const anyDates = [
+      // 优先：行情里最新有效日期所在周；否则用本周一（保证无触发也出表）
+      const validDates = [
         ...new Set(
           allData.value
             .filter((i) => i.date && isValidDate(i.date))
-            .map((i) => i.date.trim())
+            .map((i) => i.date)
         ),
       ].sort();
-      if (anyDates.length) {
-        const wDays = getWeekDays(anyDates[anyDates.length - 1]);
+      if (validDates.length) {
+        const wDays = getWeekDays(validDates[validDates.length - 1]);
         if (wDays.length) return wDays[0];
       }
       return calendarMonday();
+    });
+
+    const latestDailyColIndex = computed(() => {
+      if (!latestMonday.value) return -1;
+      const weekDays = getWeekDays(latestMonday.value);
+      for (let idx = 4; idx >= 0; idx--) {
+        const dateStr = weekDays[idx];
+        const has = allData.value.some(
+          (i) =>
+            i.date === dateStr &&
+            i.day_status &&
+            i.day_status !== "-" &&
+            i.day_status !== "--"
+        );
+        if (has) return idx;
+      }
+      return -1;
     });
 
     const R2_CHART_BASE = "https://pub-973330e118204686a625fe51431d4336.r2.dev/charts";
@@ -298,8 +265,7 @@ export default {
 
     const toBjDay = (val) => {
       if (val == null || val === "") return null;
-      if (typeof val === "string" && /^\d{4}-\d{2}-\d{2}$/.test(val.trim()))
-        return val.trim();
+      if (typeof val === "string" && /^\d{4}-\d{2}-\d{2}$/.test(val.trim())) return val.trim();
       let ts = Number(val);
       if (!ts || isNaN(ts)) {
         const parsed = Date.parse(String(val));
@@ -321,17 +287,6 @@ export default {
       return bjYmd(Date.now());
     };
 
-    /** 最近一个周六（北京日历），周线任务在周六 15:30 跑 */
-    const lastSaturdayBj = () => {
-      for (let i = 0; i <= 13; i++) {
-        const ms = Date.now() - i * 24 * 3600 * 1000;
-        const day = bjYmd(ms);
-        const wd = new Date(day + "T12:00:00+08:00").getDay();
-        if (wd === 6) return day;
-      }
-      return bjYmd(Date.now());
-    };
-
     const resolveChartEntry = (code) => {
       if (code == null) return null;
       const rawCode = String(code);
@@ -346,6 +301,11 @@ export default {
       };
     };
 
+    /**
+     * 图表采集日（整表统一）：
+     * 只认 globalChartDay（来自接口 chart_date = R2 文件日）
+     * 绝不在这里用「今天」
+     */
     const chartUpdateDay = (_code) => globalChartDay.value || null;
 
     const chartColIndexForCode = (etfCode) => {
@@ -356,6 +316,7 @@ export default {
       if (!day) return -1;
       const idx = weekDays.indexOf(day);
       if (idx >= 0) return idx;
+      // 图表日在本周之外（例如仍显示上周五文件日）→ 不挂到错误列
       return -1;
     };
 
@@ -364,20 +325,29 @@ export default {
       return !!(e && e.url);
     };
 
-    /**
-     * 日线图表图标：挂在「图表采集日」对应的星期几列
-     * （按真实星期映射，不依赖 weekDays 字符串是否等于采集日）
-     */
+    /** 采集日对应列才显示；有采集日就显示（不依赖 charts 是否非空） */
     const showDailyChartIcon = (etfCode, colIdx) => {
       if (colIdx < 0) return false;
-      const day = chartUpdateDay(etfCode) || globalChartDay.value;
-      if (!day || !isValidDate(day)) return false;
-      let target = weekdayIndexFromDate(day);
-      // 周末不更新日线图 → 挂到周五列
-      if (target < 0) target = 4;
-      return target === colIdx;
+      let target = chartColIndexForCode(etfCode);
+      // 周末不更新日线图：采集日落在周末时挂到本周周五列
+      if (target < 0 && globalChartDay.value && latestMonday.value) {
+        const weekDays = getWeekDays(latestMonday.value);
+        const day = globalChartDay.value;
+        if (day && weekDays.length) {
+          const wd = new Date(day + "T12:00:00+08:00").getDay(); // 0 Sun
+          if (wd === 0 || wd === 6) {
+            target = 4; // 周五
+          }
+        }
+      }
+      return target === colIdx && target >= 0;
     };
 
+    /**
+     * 解析全局图表采集日
+     * 优先级：接口 chart_date > charts 内 max(updated_at) > 北京最近交易日（今天若工作日）
+     * （浏览器无法可靠读 R2 Last-Modified，故不以浏览器 HEAD 为准）
+     */
     const resolveGlobalChartDay = async (sampleCodes = [], apiChartDate = null) => {
       const fromApi = toBjDay(apiChartDate);
       if (fromApi) {
@@ -398,65 +368,27 @@ export default {
         globalChartDay.value = bjYmd(maxTs);
         return globalChartDay.value;
       }
+      // 兜底：北京最近交易日（工作日=今天；与「每日出图」一致，避免永远偏前一天）
       globalChartDay.value = latestTradingDayBj();
       return globalChartDay.value;
     };
 
-    /**
-     * 周线图表采集日（与日线独立）：
-     * 1) 接口 weekly_chart_date
-     * 2) 行情里最新 week_status 的日期
-     * 3) 最近一个周六（周线任务在周六 15:30 跑）
-     * 绝不回落到「今天」工作日或日线 chart_date
-     */
-    const resolveWeeklyChartDay = async (
-      apiWeeklyChartDate = null,
-      _apiChartDate = null
-    ) => {
+    /** 周线图表日期：与日线独立，不回退到「上周周一」 */
+    const resolveWeeklyChartDay = async (apiWeeklyChartDate = null, apiChartDate = null) => {
       const fromWeekly = toBjDay(apiWeeklyChartDate);
       if (fromWeekly) {
         weeklyChartDay.value = fromWeekly;
         return fromWeekly;
       }
-      let maxDate = "";
-      for (const item of allData.value || []) {
-        const ws = item && item.week_status;
-        if (!ws || ws === "-" || ws === "--" || ws === "None" || ws === "null")
-          continue;
-        const d = item.date || item.week_status_date;
-        if (d && isValidDate(d) && String(d).trim() > maxDate)
-          maxDate = String(d).trim();
+      const fromDaily = toBjDay(apiChartDate) || globalChartDay.value;
+      if (fromDaily) {
+        weeklyChartDay.value = fromDaily;
+        return fromDaily;
       }
-      if (maxDate) {
-        try {
-          const wd = new Date(maxDate + "T12:00:00+08:00").getDay();
-          if (wd === 6) {
-            // 已是周六
-            weeklyChartDay.value = maxDate;
-            return maxDate;
-          }
-          if (wd === 0) {
-            // 周日写入 → 前一天周六
-            const [y, m, d] = parseYMD(maxDate);
-            const sat = new Date(y, m - 1, d - 1);
-            const satStr = `${sat.getFullYear()}-${String(sat.getMonth() + 1).padStart(2, "0")}-${String(sat.getDate()).padStart(2, "0")}`;
-            weeklyChartDay.value = satStr;
-            return satStr;
-          }
-          // 工作日写入的周线 → 归到该周周六（周一+5）
-          const wDays = getWeekDays(maxDate);
-          if (wDays.length) {
-            const [y, m, d] = parseYMD(wDays[0]);
-            const sat = new Date(y, m - 1, d + 5);
-            const satStr = `${sat.getFullYear()}-${String(sat.getMonth() + 1).padStart(2, "0")}-${String(sat.getDate()).padStart(2, "0")}`;
-            weeklyChartDay.value = satStr;
-            return satStr;
-          }
-        } catch (_) {}
-      }
-      weeklyChartDay.value = lastSaturdayBj();
+      weeklyChartDay.value = latestTradingDayBj();
       return weeklyChartDay.value;
     };
+
 
     const handleSort = (column) => {
       if (sortColumn.value === column) {
@@ -476,6 +408,7 @@ export default {
 
     /**
      * 取某标的「指定周（周一键）」内最新一条 week_status（含该周周六日写入的记录）。
+     * 返回 { status, date } | null
      */
     const findWeekStatusForMonday = (etfCode, mondayStr) => {
       if (!mondayStr) return null;
@@ -511,6 +444,40 @@ export default {
       return best ? { status: best, date: bestDate } : null;
     };
 
+    const hasCurrentWeekStatus = (etfMap) =>
+      Object.values(etfMap).some((r) => r.week_status_from === "current");
+
+    /** 从全量行情中拼出某一代码本周行 */
+    const buildRowForCode = (etfCode, etfName) => {
+      if (!latestMonday.value) return null;
+      const weekDays = getWeekDays(latestMonday.value);
+      if (weekDays.length < 5) return null;
+      const row = {
+        etf_code: etfCode,
+        etf_name: etfName || etfCode,
+        days: [null, null, null, null, null],
+        week_status: null,
+        week_status_date: null,
+        week_status_from: null,
+      };
+      allData.value.forEach((item) => {
+        if (String(item.etf_code) !== String(etfCode) || !item.date) return;
+        const idx = weekDays.indexOf(item.date);
+        if (idx !== -1) {
+          row.days[idx] = item;
+          if (item.etf_name) row.etf_name = item.etf_name;
+        }
+      });
+      // 主表只展示本周周线，不回退上周
+      const cur = findWeekStatusForMonday(etfCode, latestMonday.value);
+      if (cur) {
+        row.week_status = cur.status;
+        row.week_status_date = cur.date;
+        row.week_status_from = "current";
+      }
+      return row;
+    };
+
     const processedData = computed(() => {
       const empty = {
         list: [],
@@ -519,73 +486,69 @@ export default {
         weekStatusMonday: "",
         rankBy: "daily",
         rankDailyIdx: -1,
-        /** 弹匣列序（最右 = 最新） */
-        displayCols: BASE_COLS.slice(),
-        /** 手机端可见列（最新 2 列） */
-        mobileCols: BASE_COLS.slice(-2),
-        latestColKey: "week",
       };
       if (!latestMonday.value) return empty;
 
-      // 参考周（用于表头缺省日期）：最近有日线的交易日所在周
-      const refWeekDays = getWeekDays(latestMonday.value);
-      if (refWeekDays.length < 5) return empty;
+      const weekDays = getWeekDays(latestMonday.value);
+      if (weekDays.length < 5) return empty;
 
+      const prevMonday = shiftMonday(latestMonday.value, 1);
       const etfMap = {};
-      const ensureRow = (code, name) => {
+      // ① 本周一～五行情格子
+      allData.value.forEach((item) => {
+        if (!item.date || !isValidDate(item.date)) return;
+        const code = String(item.etf_code || "").replace(/\D/g, "").slice(-6) || item.etf_code;
+        const idx = weekDays.indexOf(item.date);
+        if (idx === -1) return;
         if (!etfMap[code]) {
           etfMap[code] = {
             etf_code: code,
-            etf_name: name || code,
+            etf_name: item.etf_name,
             days: [null, null, null, null, null],
             week_status: null,
             week_status_date: null,
             week_status_from: null,
           };
-        } else if (name && !etfMap[code].etf_name) {
-          etfMap[code].etf_name = name;
         }
-        return etfMap[code];
-      };
-
-      // ① 按「真实星期几」灌入日线格子：每个标的每个星期几只保留最新一条
-      //    例：今天 9/8 周二 → 周一格=9/7，周二格=最近的周二(若今日未出则 9/1)，…
-      allData.value.forEach((item) => {
-        if (!item.date || !isValidDate(item.date)) return;
-        const code =
-          String(item.etf_code || "")
-            .replace(/\D/g, "")
-            .slice(-6) || item.etf_code;
-        if (!code) return;
-        const idx = weekdayIndexFromDate(item.date);
-        if (idx < 0) return; // 周末不进日线五列
-        const row = ensureRow(code, item.etf_name);
-        const prev = row.days[idx];
-        if (!prev || !prev.date || item.date >= prev.date) {
-          row.days[idx] = item;
-        }
-        if (item.etf_name) row.etf_name = item.etf_name;
+        etfMap[code].days[idx] = item;
+        if (item.etf_name) etfMap[code].etf_name = item.etf_name;
       });
 
-      // ② 并入通用监控列表（无行情也占行）
+      // ② 并入通用监控列表
       (sharedList.value || []).forEach((s) => {
-        const code = String(s.etf_code || s.code || "")
-          .replace(/\D/g, "")
-          .slice(-6);
+        const code = String(s.etf_code || s.code || "").replace(/\D/g, "").slice(-6);
         if (code.length !== 6) return;
-        ensureRow(code, s.etf_name || s.name || code);
+        if (!etfMap[code]) {
+          etfMap[code] = {
+            etf_code: code,
+            etf_name: s.etf_name || s.name || code,
+            days: [null, null, null, null, null],
+            week_status: null,
+            week_status_date: null,
+            week_status_from: null,
+          };
+        } else if ((s.etf_name || s.name) && !etfMap[code].etf_name) {
+          etfMap[code].etf_name = s.etf_name || s.name;
+        }
       });
 
-      // ③ 行情里出现过的代码兜底建行
+      // ③ 行情里出现过但不在本周格子的代码
       allData.value.forEach((item) => {
-        const code = String(item.etf_code || "")
-          .replace(/\D/g, "")
-          .slice(-6);
+        const code = String(item.etf_code || "").replace(/\D/g, "").slice(-6);
         if (code.length !== 6) return;
-        ensureRow(code, item.etf_name || code);
+        if (!etfMap[code]) {
+          etfMap[code] = {
+            etf_code: code,
+            etf_name: item.etf_name || code,
+            days: [null, null, null, null, null],
+            week_status: null,
+            week_status_date: null,
+            week_status_from: null,
+          };
+        }
       });
 
-      // ④ 周线：每标的全库最新一条 week_status（通常为上周六任务写入）
+      // ④ 周线：主表只展示「当前展示周」最新一条（含本周六日写入）；没有则「-」，绝不回退上周数据
       Object.values(etfMap).forEach((row) => {
         const cur = findWeekStatusForMonday(row.etf_code, latestMonday.value);
         if (cur) {
@@ -593,33 +556,21 @@ export default {
           row.week_status_date = cur.date;
           row.week_status_from = "current";
         } else {
-          const prev = findLatestWeekStatus(row.etf_code);
-          if (prev) {
-            row.week_status = prev.status;
-            row.week_status_date = prev.date;
-            row.week_status_from = "prev";
-          } else {
-            row.week_status = null;
-            row.week_status_date = null;
-            row.week_status_from = null;
-          }
+          row.week_status = null;
+          row.week_status_date = null;
+          row.week_status_from = null;
         }
       });
 
-      // 各星期几列的「代表日期」：优先该列已有数据的最大 date，否则参考周对应日
-      const weekDays = refWeekDays.slice();
-      for (let idx = 0; idx < 5; idx++) {
-        let maxD = "";
-        Object.values(etfMap).forEach((row) => {
-          const c = row.days[idx];
-          if (c && c.date && isValidDate(c.date) && c.date > maxD) maxD = c.date;
-        });
-        if (maxD) weekDays[idx] = maxD;
-      }
-
+      // 与日线同一周；不因缺周线改成上周周一
       const weekStatusMonday = latestMonday.value;
+
+
       let items = Object.values(etfMap);
 
+      // ---------- 默认排序列 =「最新有行情数据的那一列」，等价于用户点了该列 ----------
+      // 例：周三已有日线/半日线数据 → 默认按「周三」列排序（先日线绝对值，再半日线）
+      // 与图表采集日无关，避免「数据到周三、图还在周二」时仍按周二排
       const hasStatus = (s) => !!(s && s !== "-" && s !== "--");
       const cellHasDay = (row, idx) => hasStatus(row.days?.[idx]?.day_status);
       const cellHasHalf = (row, idx) => {
@@ -628,41 +579,30 @@ export default {
       };
       const cellHasAny = (row, idx) => cellHasDay(row, idx) || cellHasHalf(row, idx);
 
-      /**
-       * 「本轮最新日线列」：在所有已填充的日线格中，取 date 最大的那一列
-       * （9/8 周二若尚未出数，则最新为 9/7 周一 → idx 0）
-       */
+      // 默认排序列 = 最新「有行情数据」的交易日列（等价于用户点了该列）
+      // 不跟图表采集日挂钩：数据已到周三就按周三排，即使图表仍停在周二
+      // 从周五往前扫，找到最近一列有日线或半日线即可
       let latestIdx = -1;
-      let latestDayDate = "";
-      for (let idx = 0; idx < 5; idx++) {
-        for (const row of items) {
-          const c = row.days[idx];
-          if (!c || !c.date || !isValidDate(c.date)) continue;
-          if (!cellHasAny(row, idx)) continue;
-          if (c.date >= latestDayDate) {
-            latestDayDate = c.date;
-            latestIdx = idx;
-          }
+      for (let idx = 4; idx >= 0; idx--) {
+        if (items.some((i) => cellHasAny(i, idx))) {
+          latestIdx = idx;
+          break;
         }
       }
 
-      // 免费 Top3：在最新日线列上比日线绝对值（该列 date === latestDayDate）
+      // 免费 Top3：仅看「最新有日线」的那一列（同样不跟图表日）
       let dailyColIdx = -1;
-      let dailyColDate = "";
-      for (let idx = 0; idx < 5; idx++) {
-        for (const row of items) {
-          const c = row.days[idx];
-          if (!c || !c.date || !isValidDate(c.date)) continue;
-          if (!cellHasDay(row, idx)) continue;
-          if (c.date >= dailyColDate) {
-            dailyColDate = c.date;
-            dailyColIdx = idx;
-          }
+      for (let idx = 4; idx >= 0; idx--) {
+        if (items.some((i) => cellHasDay(i, idx))) {
+          dailyColIdx = idx;
+          break;
         }
       }
 
       const hasAnyWeek = items.some((i) => hasStatus(i.week_status));
 
+      // 默认排序只看「最近一次采集」，不看数据是周几的行情
+      // 采集日代理：周线用 weeklyChartDay / week_status_date；日线用 globalChartDay / 最新有数据列日期
       const todayBj = bjYmd(Date.now());
       let isWeekendBj = false;
       try {
@@ -677,28 +617,19 @@ export default {
         if (d && isValidDate(d) && d > maxWeekStatusDate) maxWeekStatusDate = d;
       }
       const weeklyCollectDay =
-        (weeklyChartDay.value &&
-          isValidDate(weeklyChartDay.value) &&
-          weeklyChartDay.value) ||
+        (weeklyChartDay.value && isValidDate(weeklyChartDay.value) && weeklyChartDay.value) ||
         maxWeekStatusDate ||
         "";
       const dailyCollectDay =
-        (globalChartDay.value &&
-          isValidDate(globalChartDay.value) &&
-          globalChartDay.value) ||
+        (globalChartDay.value && isValidDate(globalChartDay.value) && globalChartDay.value) ||
         (latestIdx >= 0 && weekDays[latestIdx] ? weekDays[latestIdx] : "") ||
         "";
 
-      // 采集日谁新谁优先；周末跑完周线任务 → 强制周线
+      // 采集日谁新谁优先；周末跑完周线任务 → 强制周线（等同点击「周线」）
       let rankBy = "daily";
       if (hasAnyWeek && isWeekendBj) {
         rankBy = "weekly";
-      } else if (
-        hasAnyWeek &&
-        weeklyCollectDay &&
-        dailyCollectDay &&
-        weeklyCollectDay > dailyCollectDay
-      ) {
+      } else if (hasAnyWeek && weeklyCollectDay && dailyCollectDay && weeklyCollectDay > dailyCollectDay) {
         rankBy = "weekly";
       } else if (hasAnyWeek && weeklyCollectDay && weeklyCollectDay === todayBj) {
         rankBy = "weekly";
@@ -708,30 +639,6 @@ export default {
         rankBy = "weekly";
       }
 
-      /**
-       * 弹匣轮转：最右 = 最新列
-       * 例：最新是周一(d0) → [周二,周三,周四,周五,周线,周一]
-       * 最新是周线 → [周一..周五,周线]
-       */
-      let pivotIdx = 5; // 默认周线
-      if (rankBy === "weekly") {
-        pivotIdx = 5;
-      } else if (latestIdx >= 0) {
-        pivotIdx = latestIdx; // 0..4
-      } else if (globalChartDay.value) {
-        const ci = weekdayIndexFromDate(globalChartDay.value);
-        pivotIdx = ci >= 0 ? ci : 4;
-      }
-
-      // 轮转：从 pivot 的下一列开始，到 pivot 结束（pivot 在最右）
-      const n = BASE_COLS.length;
-      const displayCols = [];
-      for (let i = 1; i <= n; i++) {
-        displayCols.push(BASE_COLS[(pivotIdx + i) % n]);
-      }
-      const mobileCols = displayCols.slice(-2);
-      const latestColKey = displayCols[displayCols.length - 1].key;
-
       const absDayVal = (row, dayIdx) => {
         if (dayIdx == null || dayIdx < 0) return -9999;
         const s = row.days?.[dayIdx]?.day_status;
@@ -740,6 +647,7 @@ export default {
         return v === -9999 ? -9999 : Math.abs(v);
       };
 
+      /** 半日线绝对值：取 am/pm 中较大者 */
       const absHalfVal = (row, dayIdx) => {
         if (dayIdx == null || dayIdx < 0) return -9999;
         const item = row.days?.[dayIdx];
@@ -759,6 +667,7 @@ export default {
         return v === -9999 ? -9999 : Math.abs(v);
       };
 
+      /** 点击某一「周几」列的排序：先日线绝对值降序，再半日线绝对值降序 */
       const cmpDayColumn = (a, b, idx, orderDesc = true) => {
         const da = absDayVal(a, idx);
         const db = absDayVal(b, idx);
@@ -788,14 +697,22 @@ export default {
         return String(a.etf_code || "").localeCompare(String(b.etf_code || ""));
       };
 
-      /** 默认排序 = 按最右列（最新列） */
+      /** 默认排序 = 自动点选「最新有数据列」或周线列 */
       const cmpDefaultRank = (a, b) => {
-        const last = displayCols[displayCols.length - 1];
-        if (last.type === "week") return cmpWeekColumn(a, b, true);
-        return cmpDayColumn(a, b, last.dayIdx, true);
+        if (rankBy === "weekly") return cmpWeekColumn(a, b, true);
+        if (latestIdx >= 0) return cmpDayColumn(a, b, latestIdx, true);
+        return String(a.etf_code || "").localeCompare(String(b.etf_code || ""));
       };
 
-      // 免费看图 TOP3：与当前默认排序列一致
+      // 兼容旧引用
+      const absLatestVal = (row) =>
+        rankBy === "weekly"
+          ? absWeekVal(row)
+          : absDayVal(row, dailyColIdx >= 0 ? dailyColIdx : latestIdx);
+      const absRankVal = (row) => absLatestVal(row);
+
+      // 免费看图 TOP3：与当前默认排序列一致（日线模式用日线，周线模式用周线）
+      // 周末/周线采集优先时，与短视频免费标的、点击「周线」排序对齐
       const freeTopN = 3;
       let freeTop3Codes = [];
       if (rankBy === "weekly") {
@@ -808,16 +725,9 @@ export default {
           })
           .slice(0, freeTopN)
           .map((i) => i.etf_code);
-      } else if (dailyColIdx >= 0 && dailyColDate) {
+      } else if (dailyColIdx >= 0) {
         freeTop3Codes = [...items]
-          .filter((i) => {
-            const c = i.days?.[dailyColIdx];
-            return (
-              c &&
-              c.date === dailyColDate &&
-              absDayVal(i, dailyColIdx) > -9999
-            );
-          })
+          .filter((i) => absDayVal(i, dailyColIdx) > -9999)
           .sort((a, b) => {
             const d = absDayVal(b, dailyColIdx) - absDayVal(a, dailyColIdx);
             if (d !== 0) return d;
@@ -837,7 +747,7 @@ export default {
             const idx = parseInt(sortColumn.value.substring(1), 10);
             return cmpDayColumn(a, b, idx, sortOrder.value !== "asc");
           }
-          if (sortColumn.value === "week_status" || sortColumn.value === "week") {
+          if (sortColumn.value === "week_status") {
             return cmpWeekColumn(a, b, sortOrder.value !== "asc");
           }
         }
@@ -853,9 +763,13 @@ export default {
         );
       }
 
-      // 默认排序结构（未手动点列时）
+
+      // 默认排序结构（未手动点列时）：
+      //   · 周线模式：整表按周线绝对值（与点击「周线」一致）；免费 TOP3 也按周线
+      //   · 日线模式：免费 TOP3（日线）→ 收藏 → 其余，组内按最新日线列
       if (!sortColumn.value) {
         if (rankBy === "weekly") {
+          // 与手动点击「周线」完全一致：整表按周线绝对值降序（免费仅打标，不打乱顺序）
           items.sort((a, b) => cmpWeekColumn(a, b, true));
         } else {
           const freeSet = new Set((freeTop3Codes || []).map((c) => String(c)));
@@ -902,29 +816,86 @@ export default {
         }
       }
 
+      /**
+       * 弹匣轮转：最右 = 最新列（仅改展示顺序，不改 weekDays 灌数）
+       * 例：最新是周一(d0) → [周二,周三,周四,周五,周线,周一]
+       */
+      let pivotIdx = 5;
+      if (rankBy === "weekly") {
+        pivotIdx = 5;
+      } else if (latestIdx >= 0) {
+        pivotIdx = latestIdx;
+      } else if (globalChartDay.value && weekDays.length) {
+        const ci = weekDays.indexOf(globalChartDay.value);
+        if (ci >= 0) pivotIdx = ci;
+        else {
+          try {
+            const wd = new Date(globalChartDay.value + "T12:00:00+08:00").getDay();
+            if (wd === 0 || wd === 6) pivotIdx = 4;
+          } catch (_) {}
+        }
+      }
+      const n = BASE_COLS.length;
+      const displayCols = [];
+      for (let i = 1; i <= n; i++) {
+        displayCols.push(BASE_COLS[(pivotIdx + i) % n]);
+      }
+      const latestColKey = displayCols[displayCols.length - 1].key;
+
       return {
         list: items,
         freeTop3Codes,
         weekDays,
         weekStatusMonday,
         rankBy,
+        // 仅日线默认排序时点亮对应周几箭头；周线排序时不点亮周五等
         rankDailyIdx: rankBy === "daily" ? latestIdx : -1,
         displayCols,
-        mobileCols,
         latestColKey,
       };
     });
 
-    /** 渲染列：始终全量弹匣列（手机不裁切，靠横向滚动定位到最新） */
+    /** 始终渲染全部弹匣列（手机不裁切，靠横向滚动看最新） */
     const visibleCols = computed(() => {
       const pd = processedData.value;
-      if (!pd || !pd.displayCols) return BASE_COLS;
-      return pd.displayCols;
+      return pd && pd.displayCols && pd.displayCols.length
+        ? pd.displayCols
+        : BASE_COLS.slice();
     });
 
     const canViewChart = (etfCode) => {
       if (store.state.isVip) return true;
       return processedData.value.freeTop3Codes.includes(etfCode);
+    };
+
+    const getPastWeeks = (etf_code) => {
+      if (!latestMonday.value) return [];
+      const pastData = allData.value.filter(
+        (item) => item.etf_code === etf_code && (item.day_status || item.week_status || item.am_status || item.pm_status)
+      );
+      const weekMap = {};
+      pastData.forEach((item) => {
+        if (!item.date || !isValidDate(item.date)) return;
+        const wDays = getWeekDays(item.date);
+        if (!wDays.length) return;
+        const monday = wDays[0];
+        if (monday === latestMonday.value) return;
+        if (!weekMap[monday]) {
+          weekMap[monday] = {
+            monday,
+            days: [null, null, null, null, null],
+            week_status: null,
+          };
+        }
+        const idx = wDays.indexOf(item.date);
+        if (idx !== -1) weekMap[monday].days[idx] = item;
+        if (item.week_status && item.week_status !== "-" && item.week_status !== "--") {
+          weekMap[monday].week_status = item.week_status;
+        }
+      });
+      return Object.values(weekMap)
+        .sort((a, b) => b.monday.localeCompare(a.monday))
+        .slice(0, 4);
     };
 
     const probeImage = (url) =>
@@ -989,11 +960,10 @@ export default {
       document.head.appendChild(style);
     };
 
+
     const isFavorite = (code) => {
       const list = Array.isArray(favCodes.value) ? favCodes.value : [];
-      const c = String(code || "")
-        .replace(/\D/g, "")
-        .slice(-6);
+      const c = String(code || "").replace(/\D/g, "").slice(-6);
       return !!c && list.includes(c);
     };
 
@@ -1030,9 +1000,7 @@ export default {
         store.showToast("登录会员后可收藏标的", "error");
         return;
       }
-      const code = String(item.etf_code || "")
-        .replace(/\D/g, "")
-        .slice(-6);
+      const code = String(item.etf_code || "").replace(/\D/g, "").slice(-6);
       if (code.length !== 6) return;
       try {
         const res = await dashboardPrefsApi.toggleFavorite(code);
@@ -1087,6 +1055,7 @@ export default {
       next.splice(fi, 1);
       next.splice(ti, 0, String(from));
       userOrder.value = next;
+      // 立刻反映：依赖 processedData 读 userOrder
       if (prefsSaving.value) return;
       prefsSaving.value = true;
       try {
@@ -1097,6 +1066,7 @@ export default {
         prefsSaving.value = false;
       }
     };
+
 
     const showViewerWithMultiImages = (imgList, initialIndex = 0) => {
       if (!imgList || !imgList.length) return;
@@ -1165,8 +1135,7 @@ export default {
             navPrev.type = "button";
             navPrev.className = "bofutz-viewer-nav bofutz-viewer-prev";
             navPrev.setAttribute("aria-label", "上一张");
-            navPrev.innerHTML =
-              '<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="15 6 9 12 15 18"></polyline></svg>';
+            navPrev.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="15 6 9 12 15 18"></polyline></svg>';
             navPrev.addEventListener("click", (e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -1178,8 +1147,7 @@ export default {
             navNext.type = "button";
             navNext.className = "bofutz-viewer-nav bofutz-viewer-next";
             navNext.setAttribute("aria-label", "下一张");
-            navNext.innerHTML =
-              '<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="9 6 15 12 9 18"></polyline></svg>';
+            navNext.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="9 6 15 12 9 18"></polyline></svg>';
             navNext.addEventListener("click", (e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -1197,34 +1165,35 @@ export default {
       }
     };
 
+    /** 看板当前可见列表中，用户有权查看图表的标的（顺序与表格一致） */
     const viewableBoardItems = () => {
       const list = processedData.value?.list || [];
       return list.filter((row) => row && canViewChart(row.etf_code));
     };
 
+    /** 并行探测图片是否存在（限制并发，避免一次打爆） */
     const probeImagesBatch = async (candidates, concurrency = 12) => {
       const out = [];
       let i = 0;
-      const workers = Array.from(
-        { length: Math.min(concurrency, Math.max(1, candidates.length)) },
-        async () => {
-          while (i < candidates.length) {
-            const idx = i++;
-            const c = candidates[idx];
-            if (c && c.url && (await probeImage(c.url))) out.push({ ...c, _idx: idx });
-          }
+      const workers = Array.from({ length: Math.min(concurrency, Math.max(1, candidates.length)) }, async () => {
+        while (i < candidates.length) {
+          const idx = i++;
+          const c = candidates[idx];
+          if (c && c.url && (await probeImage(c.url))) out.push({ ...c, _idx: idx });
         }
-      );
+      });
       await Promise.all(workers);
       out.sort((a, b) => a._idx - b._idx);
       return out.map(({ _idx, ...rest }) => rest);
     };
 
+    /**
+     * 日线/半日线：按看板列表顺序拼成图库，左右翻页可切到上/下一标的
+     * 每个标的顺序：日线 → 半日线（有则入列）
+     */
     const openDailyChartViewer = async (item) => {
       if (!canViewChart(item.etf_code)) {
-        if (
-          confirm("此为 VIP 专属图表 (免费标的除外)。\n是否去开通监控 VIP？")
-        ) {
+        if (confirm("此为 VIP 专属图表 (免费标的除外)。\n是否去开通监控 VIP？")) {
           window.location.hash = "#/plan";
         }
         return;
@@ -1239,10 +1208,7 @@ export default {
         formatDateCN(chartUpdateDay(item.etf_code) || globalChartDay.value) || "";
       const candidates = [];
       for (const row of rows) {
-        const code =
-          String(row.etf_code || "")
-            .replace(/\D/g, "")
-            .slice(-6) || row.etf_code;
+        const code = String(row.etf_code || "").replace(/\D/g, "").slice(-6) || row.etf_code;
         const name = formatEtfName(row.etf_name) || code;
         const entry = resolveChartEntry(code);
         const r2Daily = `https://pub-973330e118204686a625fe51431d4336.r2.dev/charts/${code}_daily.png`;
@@ -1256,6 +1222,7 @@ export default {
           code,
           kind: "daily",
         });
+        // DB 链接与默认 R2 不同时，再挂一条 R2 日线兜底（同一标的相邻，便于对照）
         if (entry && entry.url && entry.url !== r2Daily) {
           candidates.push({
             title: `${name} (${code}) ${rowDayLabel}日线(R2)`.replace(/\s+/g, " ").trim(),
@@ -1276,21 +1243,20 @@ export default {
         store.showToast("暂无可用日线/半日线图表", "error");
         return;
       }
-      const clickCode =
-        String(item.etf_code || "")
-          .replace(/\D/g, "")
-          .slice(-6) || item.etf_code;
+      const clickCode = String(item.etf_code || "").replace(/\D/g, "").slice(-6) || item.etf_code;
+      // 优先定位到当前标的的「日线」；没有则该标的任意一张；再没有则 0
       let idx = images.findIndex((g) => g.code === clickCode && g.kind === "daily");
       if (idx < 0) idx = images.findIndex((g) => g.code === clickCode);
       if (idx < 0) idx = 0;
       showViewerWithMultiImages(images, idx);
     };
 
+    /**
+     * 周线：按看板列表顺序拼成图库，左右翻页切换上/下一标的周线
+     */
     const openWeeklyChartViewer = async (item) => {
       if (!canViewChart(item.etf_code)) {
-        if (
-          confirm("此为 VIP 专属图表 (免费标的除外)。\n是否去开通通用 VIP？")
-        ) {
+        if (confirm("此为 VIP 专属图表 (免费标的除外)。\n是否去开通通用 VIP？")) {
           window.location.hash = "#/plan";
         }
         return;
@@ -1303,15 +1269,11 @@ export default {
       store.showToast("正在加载图库…");
       const candidates = [];
       for (const row of rows) {
-        const code =
-          String(row.etf_code || "")
-            .replace(/\D/g, "")
-            .slice(-6) || row.etf_code;
+        const code = String(row.etf_code || "").replace(/\D/g, "").slice(-6) || row.etf_code;
         const name = formatEtfName(row.etf_name) || code;
         const rowDayLabel =
-          formatDateCN(
-            weeklyChartDay.value || globalChartDay.value || row.week_status_date
-          ) || "";
+          formatDateCN(weeklyChartDay.value || globalChartDay.value || row.week_status_date) ||
+          "";
         candidates.push({
           title: `${name} (${code}) ${rowDayLabel}周线`.replace(/\s+/g, " ").trim(),
           url: `https://pub-973330e118204686a625fe51431d4336.r2.dev/charts/${code}_weekly.png`,
@@ -1324,10 +1286,7 @@ export default {
         store.showToast("暂无可用周线图表", "error");
         return;
       }
-      const clickCode =
-        String(item.etf_code || "")
-          .replace(/\D/g, "")
-          .slice(-6) || item.etf_code;
+      const clickCode = String(item.etf_code || "").replace(/\D/g, "").slice(-6) || item.etf_code;
       let idx = images.findIndex((g) => g.code === clickCode);
       if (idx < 0) idx = 0;
       showViewerWithMultiImages(images, idx);
@@ -1390,6 +1349,7 @@ export default {
 
     onMounted(async () => {
       await initData();
+      // 二次滚动：表格渲染完成后再定位
       setTimeout(scrollToLatestCol, 120);
       setTimeout(scrollToLatestCol, 400);
     });
@@ -1414,6 +1374,7 @@ export default {
       handleSort,
       processedData,
       visibleCols,
+      latestDailyColIndex,
       chartColIndexForCode,
       hasChartForCode,
       showDailyChartIcon,
@@ -1464,6 +1425,7 @@ export default {
       </div>
 
       <template v-else>
+        <!-- ===== 通用数据表 ===== -->
         <div v-if="!processedData.list.length" class="text-center py-12 text-slate-400 bg-white rounded-xl border border-slate-100">
           <i class="fa-solid fa-folder-open text-4xl mb-3 opacity-40"></i>
           <p>暂无相关行情数据</p>
@@ -1526,11 +1488,11 @@ export default {
                       ]">
                     <template v-if="col.type==='day'">
                       <div class="dash-cell-inner flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1"
-                           :title="dataDateTitle((item.days[col.dayIdx] && item.days[col.dayIdx].date) || processedData.weekDays[col.dayIdx])">
+                           :title="dataDateTitle(processedData.weekDays[col.dayIdx])">
                         <span class="text-[10px] sm:text-sm font-mono tracking-tight leading-tight">{{ formatDayCell(item.days[col.dayIdx]) }}</span>
                         <i v-if="showDailyChartIcon(item.etf_code, col.dayIdx)"
                            class="fa-regular fa-image text-slate-400 hover:text-blue-500 cursor-pointer text-sm sm:text-xs shrink-0 p-1"
-                           :title="dailyChartTitle(item.etf_code, (item.days[col.dayIdx] && item.days[col.dayIdx].date) || processedData.weekDays[col.dayIdx])"
+                           :title="dailyChartTitle(item.etf_code, processedData.weekDays[col.dayIdx])"
                            @click.stop="openDailyChartViewer(item)"></i>
                       </div>
                     </template>
@@ -1550,9 +1512,10 @@ export default {
         </div>
 
         <p class="text-[11px] text-slate-400 text-center">
-          单元格格式：上午/下午|日线。未触发显示 “-”。每列按真实星期映射最近一次数据（如周一列=最近周一）。列弹匣轮转最右为最新。周线为最近一次周线。默认按最右列排序；免费 TOP3 → 收藏 → 其余。手机端默认定位到最新列，可左滑查看全部列。
+          单元格格式：上午/下午|日线。未触发显示 “-”。同一列对应同一交易日。列按最新采集弹匣轮转（最右为最新）。默认按最右列排序；免费 TOP3 → 收藏 → 其余。手机端默认定位到最新列，可左滑查看全部列。
         </p>
 
+        <!-- 打赏入口 -->
         <div v-if="tipEnabled" class="text-center pt-2">
           <button type="button" @click="tipChannel = tipWechatSrc ? 'wechat' : (tipAlipaySrc ? 'alipay' : 'wechat'); tipVisible = true"
                   class="text-xs text-slate-400 hover:theme-text underline">
@@ -1561,6 +1524,7 @@ export default {
         </div>
       </template>
 
+      <!-- 打赏弹层 -->
       <div v-if="tipVisible" class="fixed inset-0 modal-overlay z-[100] flex items-center justify-center p-4" @click.self="tipVisible = false">
         <div class="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4 shadow-2xl text-center">
           <h3 class="font-bold text-slate-800">感谢支持</h3>
