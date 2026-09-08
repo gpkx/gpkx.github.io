@@ -5,7 +5,7 @@
  * - 列弹匣轮转：最新采集列在最右；手机全列可滑，默认滚到最新
  * - 打赏入口（后台 tip_enabled）
  * js/components/index/Dashboard.js
- * DASHBOARD_BUILD 2026-09-08e recent-5-trading-days window + week + rotate
+ * DASHBOARD_BUILD 2026-09-08f unified closed-week line + recent-5 days + rotate
  */
 import { store } from "../../store.js";
 import { etfApi } from "../../api/etf.js";
@@ -387,42 +387,30 @@ export default {
     };
 
     /**
-     * 周线图表采集日（与日线独立）：
+     * 周线图表采集日 = 最近完整闭合周的周六（任务跑批日）
      * 1) 接口 weekly_chart_date
-     * 2) 行情中 week_status 最新日期所在周的周六
+     * 2) 由周线数据推出该周周六
      * 3) 最近一个周六
-     * 绝不回落到日线 chart_date / 今天工作日
+     * 绝不回落到日线「今天」
      */
-    const resolveWeeklyChartDay = async (apiWeeklyChartDate = null, _apiChartDate = null) => {
+    const resolveWeeklyChartDay = async (
+      apiWeeklyChartDate = null,
+      _apiChartDate = null
+    ) => {
       const fromWeekly = toBjDay(apiWeeklyChartDate);
       if (fromWeekly) {
         weeklyChartDay.value = fromWeekly;
         return fromWeekly;
       }
-      let maxDate = "";
-      for (const item of allData.value || []) {
-        const ws = item && item.week_status;
-        if (!ws || ws === "-" || ws === "--" || ws === "None" || ws === "null") continue;
-        const d = item.date || item.week_status_date;
-        if (d && isValidDate(d) && String(d).trim() > maxDate) maxDate = String(d).trim();
-      }
-      if (maxDate) {
-        try {
-          const wd = new Date(maxDate + "T12:00:00+08:00").getDay();
-          if (wd === 6) {
-            weeklyChartDay.value = maxDate;
-            return maxDate;
-          }
-          // 归到该周周六（周一 + 5）
-          const wDays = getWeekDays(maxDate);
-          if (wDays.length) {
-            const [y, m, d] = parseYMD(wDays[0]);
-            const sat = new Date(y, m - 1, d + 5);
-            const satStr = `${sat.getFullYear()}-${String(sat.getMonth() + 1).padStart(2, "0")}-${String(sat.getDate()).padStart(2, "0")}`;
-            weeklyChartDay.value = satStr;
-            return satStr;
-          }
-        } catch (_) {}
+      const monday = resolveLatestClosedWeekMonday();
+      if (monday) {
+        const [y, m, d] = parseYMD(monday);
+        if (y) {
+          const sat = new Date(y, m - 1, d + 5);
+          const satStr = `${sat.getFullYear()}-${String(sat.getMonth() + 1).padStart(2, "0")}-${String(sat.getDate()).padStart(2, "0")}`;
+          weeklyChartDay.value = satStr;
+          return satStr;
+        }
       }
       weeklyChartDay.value = lastSaturdayBj();
       return weeklyChartDay.value;
@@ -474,22 +462,21 @@ export default {
         .replace(/\D/g, "")
         .slice(-6);
 
-    /** 全库该代码最新一条周线（按 date 降序） */
-    const findLatestWeekStatus = (etfCode) => {
-      const want = normCode(etfCode);
-      if (!want || want.length !== 6) return null;
-      let best = null;
-      let bestDate = "";
-      for (const item of allData.value) {
-        if (normCode(item.etf_code) !== want) continue;
-        if (!item.date || !isValidDate(item.date)) continue;
+    /**
+     * 最近「完整闭合周」的周一键
+     * 周线任务在周六跑，写入的是上周五收盘后的周线 → 全表只认这一周
+     */
+    const resolveLatestClosedWeekMonday = () => {
+      let maxDate = "";
+      for (const item of allData.value || []) {
         if (isBlankStatus(item.week_status)) continue;
-        if (!bestDate || item.date > bestDate) {
-          bestDate = item.date;
-          best = String(item.week_status).trim();
-        }
+        const d = item.date || item.week_status_date;
+        if (d && isValidDate(d) && String(d).trim() > maxDate)
+          maxDate = String(d).trim();
       }
-      return best ? { status: best, date: bestDate } : null;
+      if (!maxDate) return "";
+      const wDays = getWeekDays(maxDate);
+      return wDays.length ? wDays[0] : "";
     };
 
     /**
@@ -655,13 +642,23 @@ export default {
         ensureRow(code, item.etf_name || code);
       });
 
-      // ④ 周线：每标的最近一条完整周线（通常为上周六任务）
+      // ④ 周线：全表统一「最近完整闭合周」（如 9/1～9/4 周，周六 9/5 采集）
+      //    悬停日期统一为该周周五（收盘日），不按标的各自取不同 date
+      const closedWeekMonday = resolveLatestClosedWeekMonday();
+      const closedWeekDays = closedWeekMonday
+        ? getWeekDays(closedWeekMonday)
+        : [];
+      const closedWeekFriday =
+        closedWeekDays.length >= 5 ? closedWeekDays[4] : "";
       Object.values(etfMap).forEach((row) => {
-        const latest = findLatestWeekStatus(row.etf_code);
-        if (latest) {
-          row.week_status = latest.status;
-          row.week_status_date = latest.date;
-          row.week_status_from = "latest";
+        const cur = closedWeekMonday
+          ? findWeekStatusForMonday(row.etf_code, closedWeekMonday)
+          : null;
+        if (cur) {
+          row.week_status = cur.status;
+          // 统一展示为闭合周周五（9/4），避免出现多个日期
+          row.week_status_date = closedWeekFriday || cur.date;
+          row.week_status_from = "closed";
         } else {
           row.week_status = null;
           row.week_status_date = null;
@@ -669,7 +666,7 @@ export default {
         }
       });
 
-      const weekStatusMonday = latestMonday.value;
+      const weekStatusMonday = closedWeekMonday || latestMonday.value;
       let items = Object.values(etfMap);
 
       const hasStatus = (s) => !!(s && s !== "-" && s !== "--");
