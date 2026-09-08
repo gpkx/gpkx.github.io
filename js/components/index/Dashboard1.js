@@ -4,7 +4,7 @@
  * - 数据与图表分列：行情按采集日、图表按更新日落在对应周几列
  * - 打赏入口（后台 tip_enabled）
  * js/components/index/Dashboard.js
- * DASHBOARD_BUILD 2026-08-19a default-sort by latest data day (not chart day)
+ * DASHBOARD_BUILD 2026-08-22c weekly mode: pure week sort + freeTop3 from week
  */
 import { store } from "../../store.js";
 import { etfApi } from "../../api/etf.js";
@@ -67,7 +67,10 @@ export default {
         // 0=名称, 1..5=周一..五, 6=周线
         let targetIdx = 1;
         const pd = processedData.value;
-        if (pd && pd.rankDailyIdx >= 0) {
+        if (pd && pd.rankBy === "weekly") {
+          // 周线列：0=名称, 1..5=周一..五, 6=周线
+          targetIdx = 6;
+        } else if (pd && pd.rankDailyIdx >= 0) {
           targetIdx = 1 + pd.rankDailyIdx;
         } else if (globalChartDay.value && pd && pd.weekDays && pd.weekDays.length) {
           const ci = pd.weekDays.indexOf(globalChartDay.value);
@@ -610,9 +613,43 @@ export default {
 
       const hasAnyWeek = items.some((i) => hasStatus(i.week_status));
 
-      // 有周几列数据 → 按该列（同点击该列）；否则若有周线 → 按周线列
-      const rankBy =
-        latestIdx >= 0 ? "daily" : hasAnyWeek ? "weekly" : "daily";
+      // 默认排序只看「最近一次采集」，不看数据是周几的行情
+      // 采集日代理：周线用 weeklyChartDay / week_status_date；日线用 globalChartDay / 最新有数据列日期
+      const todayBj = bjYmd(Date.now());
+      let isWeekendBj = false;
+      try {
+        const wd = new Date(todayBj + "T12:00:00+08:00").getDay();
+        isWeekendBj = wd === 0 || wd === 6;
+      } catch (_) {}
+
+      let maxWeekStatusDate = "";
+      for (const row of items) {
+        if (!hasStatus(row.week_status)) continue;
+        const d = row.week_status_date;
+        if (d && isValidDate(d) && d > maxWeekStatusDate) maxWeekStatusDate = d;
+      }
+      const weeklyCollectDay =
+        (weeklyChartDay.value && isValidDate(weeklyChartDay.value) && weeklyChartDay.value) ||
+        maxWeekStatusDate ||
+        "";
+      const dailyCollectDay =
+        (globalChartDay.value && isValidDate(globalChartDay.value) && globalChartDay.value) ||
+        (latestIdx >= 0 && weekDays[latestIdx] ? weekDays[latestIdx] : "") ||
+        "";
+
+      // 采集日谁新谁优先；周末跑完周线任务 → 强制周线（等同点击「周线」）
+      let rankBy = "daily";
+      if (hasAnyWeek && isWeekendBj) {
+        rankBy = "weekly";
+      } else if (hasAnyWeek && weeklyCollectDay && dailyCollectDay && weeklyCollectDay > dailyCollectDay) {
+        rankBy = "weekly";
+      } else if (hasAnyWeek && weeklyCollectDay && weeklyCollectDay === todayBj) {
+        rankBy = "weekly";
+      } else if (latestIdx >= 0) {
+        rankBy = "daily";
+      } else if (hasAnyWeek) {
+        rankBy = "weekly";
+      }
 
       const absDayVal = (row, dayIdx) => {
         if (dayIdx == null || dayIdx < 0) return -9999;
@@ -686,20 +723,31 @@ export default {
           : absDayVal(row, dailyColIdx >= 0 ? dailyColIdx : latestIdx);
       const absRankVal = (row) => absLatestVal(row);
 
-      // 免费看图：仅「最新有日线的那一列」的 day_status TOP3；不足 3 个不凑半日线
+      // 免费看图 TOP3：与当前默认排序列一致（日线模式用日线，周线模式用周线）
+      // 周末/周线采集优先时，与短视频免费标的、点击「周线」排序对齐
       const freeTopN = 3;
-      const freeTop3Codes =
-        dailyColIdx < 0
-          ? []
-          : [...items]
-              .filter((i) => absDayVal(i, dailyColIdx) > -9999)
-              .sort((a, b) => {
-                const d = absDayVal(b, dailyColIdx) - absDayVal(a, dailyColIdx);
-                if (d !== 0) return d;
-                return String(a.etf_code || "").localeCompare(String(b.etf_code || ""));
-              })
-              .slice(0, freeTopN)
-              .map((i) => i.etf_code);
+      let freeTop3Codes = [];
+      if (rankBy === "weekly") {
+        freeTop3Codes = [...items]
+          .filter((i) => absWeekVal(i) > -9999)
+          .sort((a, b) => {
+            const d = absWeekVal(b) - absWeekVal(a);
+            if (d !== 0) return d;
+            return String(a.etf_code || "").localeCompare(String(b.etf_code || ""));
+          })
+          .slice(0, freeTopN)
+          .map((i) => i.etf_code);
+      } else if (dailyColIdx >= 0) {
+        freeTop3Codes = [...items]
+          .filter((i) => absDayVal(i, dailyColIdx) > -9999)
+          .sort((a, b) => {
+            const d = absDayVal(b, dailyColIdx) - absDayVal(a, dailyColIdx);
+            if (d !== 0) return d;
+            return String(a.etf_code || "").localeCompare(String(b.etf_code || ""));
+          })
+          .slice(0, freeTopN)
+          .map((i) => i.etf_code);
+      }
 
       items.sort((a, b) => {
         if (sortColumn.value) {
@@ -729,54 +777,55 @@ export default {
 
 
       // 默认排序结构（未手动点列时）：
-      //   1) 免费 TOP3（日线触发）
-      //   2) 收藏（不含已在免费中的）— 组内按日线→半日线（同点最新有数据列）
-      //   3) 其余 — 同样按日线→半日线
-      // 无收藏时 ≈ 点击「周二」等最新列后的顺序（免费自然在前）
+      //   · 周线模式：整表按周线绝对值（与点击「周线」一致）；免费 TOP3 也按周线
+      //   · 日线模式：免费 TOP3（日线）→ 收藏 → 其余，组内按最新日线列
       if (!sortColumn.value) {
-        const freeSet = new Set((freeTop3Codes || []).map((c) => String(c)));
-        const freeIdx = new Map(
-          (freeTop3Codes || []).map((c, i) => [String(c), i])
-        );
-        const favSet = new Set(
-          store.state.isLoggedIn && store.state.isVip
-            ? (Array.isArray(favCodes.value) ? favCodes.value : []).map((c) =>
-                String(c)
-              )
-            : []
-        );
-        const orderMap = new Map(
-          (Array.isArray(userOrder.value) ? userOrder.value : []).map((c, i) => [
-            String(c),
-            i,
-          ])
-        );
-        const groupOf = (code) => {
-          const c = String(code);
-          if (freeSet.has(c)) return 0;
-          if (favSet.has(c)) return 1;
-          return 2;
-        };
-        items.sort((a, b) => {
-          const ca = String(a.etf_code);
-          const cb = String(b.etf_code);
-          const ga = groupOf(ca);
-          const gb = groupOf(cb);
-          if (ga !== gb) return ga - gb;
-          // 免费组：保持 TOP3 原序（按日线绝对值）
-          if (ga === 0) {
-            return (freeIdx.get(ca) ?? 0) - (freeIdx.get(cb) ?? 0);
-          }
-          // 收藏组 / 其余组：与点击最新列相同 — 日线→半日线
-          const primary = cmpDefaultRank(a, b);
-          if (primary !== 0) return primary;
-          if (orderMap.size) {
-            const ia = orderMap.has(ca) ? orderMap.get(ca) : 100000;
-            const ib = orderMap.has(cb) ? orderMap.get(cb) : 100000;
-            if (ia !== ib) return ia - ib;
-          }
-          return 0;
-        });
+        if (rankBy === "weekly") {
+          // 与手动点击「周线」完全一致：整表按周线绝对值降序（免费仅打标，不打乱顺序）
+          items.sort((a, b) => cmpWeekColumn(a, b, true));
+        } else {
+          const freeSet = new Set((freeTop3Codes || []).map((c) => String(c)));
+          const freeIdx = new Map(
+            (freeTop3Codes || []).map((c, i) => [String(c), i])
+          );
+          const favSet = new Set(
+            store.state.isLoggedIn && store.state.isVip
+              ? (Array.isArray(favCodes.value) ? favCodes.value : []).map((c) =>
+                  String(c)
+                )
+              : []
+          );
+          const orderMap = new Map(
+            (Array.isArray(userOrder.value) ? userOrder.value : []).map((c, i) => [
+              String(c),
+              i,
+            ])
+          );
+          const groupOf = (code) => {
+            const c = String(code);
+            if (freeSet.has(c)) return 0;
+            if (favSet.has(c)) return 1;
+            return 2;
+          };
+          items.sort((a, b) => {
+            const ca = String(a.etf_code);
+            const cb = String(b.etf_code);
+            const ga = groupOf(ca);
+            const gb = groupOf(cb);
+            if (ga !== gb) return ga - gb;
+            if (ga === 0) {
+              return (freeIdx.get(ca) ?? 0) - (freeIdx.get(cb) ?? 0);
+            }
+            const primary = cmpDefaultRank(a, b);
+            if (primary !== 0) return primary;
+            if (orderMap.size) {
+              const ia = orderMap.has(ca) ? orderMap.get(ca) : 100000;
+              const ib = orderMap.has(cb) ? orderMap.get(cb) : 100000;
+              if (ia !== ib) return ia - ib;
+            }
+            return 0;
+          });
+        }
       }
 
       return {
@@ -785,7 +834,8 @@ export default {
         weekDays,
         weekStatusMonday,
         rankBy,
-        rankDailyIdx: latestIdx,
+        // 仅日线默认排序时点亮对应周几箭头；周线排序时不点亮周五等
+        rankDailyIdx: rankBy === "daily" ? latestIdx : -1,
       };
     });
 
@@ -1370,7 +1420,7 @@ export default {
                   </th>
                   <th v-for="idx in 5" :key="idx" class="py-3 px-1.5 sm:px-2 sticky top-0 bg-slate-50 z-30 cursor-pointer hover:bg-slate-100 transition-colors border-b border-slate-200 dash-col-day" @click="handleSort('d'+(idx-1))">
                     周{{ ['一','二','三','四','五'][idx-1] }}
-                    <i v-if="sortColumn==='d'+(idx-1) || (!sortColumn && processedData.rankDailyIdx===(idx-1))" class="fa-solid text-[10px] ml-1" :class="sortColumn==='d'+(idx-1) && sortOrder==='asc'?'fa-arrow-up':'fa-arrow-down'"></i>
+                    <i v-if="sortColumn==='d'+(idx-1) || (!sortColumn && processedData.rankBy==='daily' && processedData.rankDailyIdx===(idx-1))" class="fa-solid text-[10px] ml-1" :class="sortColumn==='d'+(idx-1) && sortOrder==='asc'?'fa-arrow-up':'fa-arrow-down'"></i>
                   </th>
                   <th class="py-3 px-2 sm:px-4 sticky top-0 bg-slate-50 z-30 cursor-pointer hover:bg-slate-100 transition-colors border-b border-slate-200 dash-col-week" @click="handleSort('week_status')">
                     周线
